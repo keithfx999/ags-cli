@@ -128,11 +128,8 @@ func GetCachedTokenOrAcquire(ctx context.Context, instanceID string) (string, er
 		return "", err
 	}
 
-	// Cache the newly acquired token
-	if err := tokenCache.Set(instanceID, accessToken); err != nil {
-		// Log warning but don't fail
-		// The operation can still succeed without caching
-	}
+	// Cache the newly acquired token (best-effort, ignore errors)
+	_ = tokenCache.Set(instanceID, accessToken)
 
 	return accessToken, nil
 }

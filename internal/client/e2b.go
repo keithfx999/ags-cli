@@ -116,7 +116,7 @@ func (c *E2BControlPlane) CreateInstance(ctx context.Context, opts *CreateInstan
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -150,7 +150,7 @@ func (c *E2BControlPlane) ListInstances(ctx context.Context, opts *ListInstances
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -194,7 +194,7 @@ func (c *E2BControlPlane) GetInstance(ctx context.Context, id string) (*Instance
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -232,7 +232,7 @@ func (c *E2BControlPlane) DeleteInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)

@@ -395,7 +395,7 @@ func Validate() error {
 		}
 	case "cloud":
 		if c.Cloud.SecretID == "" || c.Cloud.SecretKey == "" {
-			return fmt.Errorf("Cloud API credentials are required (set AGS_CLOUD_SECRET_ID/AGS_CLOUD_SECRET_KEY or cloud.secret_id/cloud.secret_key in config)")
+			return fmt.Errorf("cloud API credentials are required (set AGS_CLOUD_SECRET_ID/AGS_CLOUD_SECRET_KEY or cloud.secret_id/cloud.secret_key in config)")
 		}
 	}
 
