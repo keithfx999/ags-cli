@@ -254,7 +254,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 		http.Error(w, fmt.Sprintf("WebSocket upstream connection failed: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer upstreamConn.Close()
+	defer func() { _ = upstreamConn.Close() }()
 
 	// Pass negotiated subprotocol back to client
 	responseHeader := http.Header{}
@@ -270,7 +270,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 		p.logger.Printf("[ERROR] WebSocket client upgrade failed: %v", err)
 		return
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	p.logger.Printf("[WS] WebSocket connection established: %s", r.URL.Path)
 
@@ -282,14 +282,14 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 	go func() {
 		defer wg.Done()
 		p.bridgeWebSocket(clientConn, upstreamConn, "client->upstream")
-		upstreamConn.Close() // 通知对端 goroutine 退出
+		_ = upstreamConn.Close() // 通知对端 goroutine 退出
 	}()
 
 	// Upstream -> Client
 	go func() {
 		defer wg.Done()
 		p.bridgeWebSocket(upstreamConn, clientConn, "upstream->client")
-		clientConn.Close() // 通知对端 goroutine 退出
+		_ = clientConn.Close() // 通知对端 goroutine 退出
 	}()
 
 	wg.Wait()

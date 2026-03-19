@@ -296,7 +296,7 @@ func TestProxyHTTPForwarding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP request through proxy failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestProxyWebSocketForwarding(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		// Echo back messages
 		for {
@@ -382,7 +382,7 @@ func TestProxyWebSocketForwarding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WebSocket dial through proxy failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send message and verify echo
 	testMsg := "hello websocket"
@@ -416,7 +416,7 @@ func TestProxyWebSocketBidirectional(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		// Server sends a greeting first
 		if err := conn.WriteMessage(websocket.TextMessage, []byte("server-hello")); err != nil {
@@ -463,7 +463,7 @@ func TestProxyWebSocketBidirectional(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Read server greeting
 	_, msg, err := conn.ReadMessage()
@@ -542,7 +542,7 @@ func TestProxyMultipleConcurrentHTTPRequests(t *testing.T) {
 				errors <- err
 				return
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
 				errors <- fmt.Errorf("unexpected status: %d", resp.StatusCode)
 			}
