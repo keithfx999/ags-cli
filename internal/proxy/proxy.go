@@ -223,7 +223,13 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 	}
 	if err != nil {
 		p.logger.Printf("[ERROR] WebSocket upstream dial failed: %v", err)
-		http.Error(w, fmt.Sprintf("WebSocket upstream connection failed: %v", err), http.StatusBadGateway)
+		// Only expose error details in verbose mode to avoid leaking internal
+		// host names or network topology to network-accessible clients.
+		errMsg := "Bad Gateway"
+		if p.options.Verbose {
+			errMsg = fmt.Sprintf("WebSocket upstream connection failed: %v", err)
+		}
+		http.Error(w, errMsg, http.StatusBadGateway)
 		return
 	}
 	defer func() { _ = upstreamConn.Close() }()
@@ -244,7 +250,9 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 	}
 	defer func() { _ = clientConn.Close() }()
 
-	p.logger.Printf("[WS] WebSocket connection established: %s", r.URL.Path)
+	if p.options.Verbose {
+		p.logger.Printf("[WS] WebSocket connection established: %s", r.URL.Path)
+	}
 
 	// Bridge the two WebSocket connections bidirectionally.
 	// When the proxy is stopped (p.ctx cancelled), force-unblock any pending
@@ -279,7 +287,9 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 
 	wg.Wait()
 	close(stopCh) // both bridges finished; stop the deadline-setter goroutine
-	p.logger.Printf("[WS] WebSocket connection closed: %s", r.URL.Path)
+	if p.options.Verbose {
+		p.logger.Printf("[WS] WebSocket connection closed: %s", r.URL.Path)
+	}
 }
 
 // bridgeWebSocket copies messages from src to dst WebSocket connection.
