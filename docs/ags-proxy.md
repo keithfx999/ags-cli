@@ -14,7 +14,7 @@ Creates a local HTTP/WebSocket reverse proxy that forwards all traffic to the sp
 
 Both HTTP and WebSocket protocols are fully supported, making this command suitable for web development servers (e.g., Vite, webpack-dev-server), API servers, and any HTTP-based service running in the sandbox.
 
-> **Note**: The remote port must be configured as accessible in the sandbox console before using this command.
+> **Note**: Before using this command, open the target port in the AGS sandbox console: navigate to your sandbox instance → **Network** → **Open Port**, and add the remote port number to the allowlist. Requests to ports that have not been configured will be rejected by the gateway.
 
 ## Port Syntax
 

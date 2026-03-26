@@ -146,7 +146,7 @@ ags proxy sandbox-xxx 8080
 ags proxy sandbox-xxx 3000:8080
 ```
 
-> **Note**: The remote port must be configured as accessible in the sandbox console first.
+> **Note**: Before using this command, open the target port in the AGS sandbox console: navigate to your sandbox instance → **Network** → **Open Port**, and add the remote port number to the allowlist. Requests to ports that have not been configured will be rejected by the gateway.
 
 ## Mobile Sandbox (ADB Access)
 

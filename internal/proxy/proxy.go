@@ -29,7 +29,10 @@ type Options struct {
 	InstanceID    string      // e.g. "sandbox-xxx"
 	Domain        string      // e.g. "ap-guangzhou.tencentags.com" (region-qualified)
 	RemotePort    int         // Port on the remote sandbox to proxy to
-	Token         string      // Access token for the sandbox; valid for the proxy's lifetime
+	// Token is the access token for the sandbox. Its lifetime is bound to the
+	// sandbox instance lifecycle — it stays valid as long as the instance is
+	// running, so no refresh or 401-retry logic is required.
+	Token         string
 	ListenAddress string      // e.g. "127.0.0.1:3000"
 	Logger        *log.Logger // Optional logger; defaults to log.Default()
 	Insecure      bool        // Skip TLS verification
@@ -111,9 +114,8 @@ func (p *Proxy) Start() (string, error) {
 		originalDirector(req)
 		// Set the correct Host header (changeOrigin equivalent)
 		req.Host = p.targetHost
-		// Inject access token
+		// Inject access token. The sandbox gateway authenticates via X-Access-Token only.
 		req.Header.Set("X-Access-Token", p.options.Token)
-		req.Header.Set("Authorization", "Bearer "+p.options.Token)
 		if p.options.Verbose {
 			p.logger.Printf("[HTTP] %s %s", req.Method, req.URL.Path)
 		}
@@ -184,10 +186,10 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 	// Build upstream WebSocket URL
 	upstreamURL := fmt.Sprintf("wss://%s%s", p.targetHost, r.URL.RequestURI())
 
-	// Prepare upstream headers with the pre-acquired token
+	// Prepare upstream headers with the pre-acquired token.
+	// The sandbox gateway authenticates via X-Access-Token only.
 	upstreamHeaders := http.Header{}
 	upstreamHeaders.Set("X-Access-Token", p.options.Token)
-	upstreamHeaders.Set("Authorization", "Bearer "+p.options.Token)
 	upstreamHeaders.Set("Host", p.targetHost)
 
 	// Copy relevant headers from the original request

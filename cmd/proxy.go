@@ -33,7 +33,10 @@ Both HTTP and WebSocket protocols are fully supported, making this suitable for
 web development servers (e.g., Vite, webpack-dev-server), API servers, and any
 HTTP-based service running in the sandbox.
 
-NOTE: The remote port must be configured as accessible in the sandbox console.
+NOTE: The remote port must be explicitly opened in the AGS sandbox console before
+use. Navigate to your sandbox instance -> Network -> Open Port, and add the remote
+port number to the allowlist. Requests to ports that are not configured will be
+rejected by the gateway.
 
 Port Syntax:
   <remote_port>                Forward remote port to the same local port
@@ -117,8 +120,11 @@ func runProxy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get verbose flag: %w", err)
 	}
 
-	// Acquire a token once upfront; it remains valid for the proxy's lifetime
-	// (token and instance have the same lifecycle).
+	// Acquire a token once upfront. The access token's lifetime is bound to the
+	// sandbox instance lifecycle — it remains valid as long as the sandbox is
+	// running and becomes invalid only when the sandbox is destroyed. There is
+	// no need to refresh the token or handle 401 responses during the proxy's
+	// lifetime.
 	token, err := acquireInstanceToken(context.Background(), sandboxID)
 	if err != nil {
 		return fmt.Errorf("failed to acquire access token: %w", err)
