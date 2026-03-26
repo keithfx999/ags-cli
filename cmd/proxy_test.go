@@ -104,6 +104,18 @@ func TestParsePortSpec(t *testing.T) {
 			wantErr:     true,
 			errContains: "remote port must be between",
 		},
+		{
+			name:        "empty spec",
+			spec:        "",
+			wantErr:     true,
+			errContains: "invalid port",
+		},
+		{
+			name:        "multiple colons treated as local:remote with bad remote",
+			spec:        "8080:80:8080",
+			wantErr:     true,
+			errContains: "invalid remote port",
+		},
 	}
 
 	for _, tt := range tests {

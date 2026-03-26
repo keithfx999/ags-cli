@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -602,5 +603,123 @@ func TestIsWebSocketRequest(t *testing.T) {
 				t.Errorf("isWebSocketRequest() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestProxyStopWithActiveWebSocket tests that Stop() unblocks active WebSocket
+// connections rather than hanging indefinitely.
+func TestProxyStopWithActiveWebSocket(t *testing.T) {
+	// upstream: accept a WebSocket and hold it open until the client disconnects.
+	connectedCh := make(chan struct{})
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		close(connectedCh) // signal that the WS is established
+		// Block until the proxy closes the upstream connection.
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+
+	upstreamHost := strings.TrimPrefix(upstream.URL, "https://")
+
+	p, err := New(Options{
+		InstanceID:    "test-sandbox",
+		Domain:        "test.example.com",
+		RemotePort:    3000,
+		Token:         "token",
+		ListenAddress: "127.0.0.1:0",
+		Insecure:      true,
+	})
+	if err != nil {
+		t.Fatalf("failed to create proxy: %v", err)
+	}
+	p.targetHost = upstreamHost
+
+	addr, err := p.Start()
+	if err != nil {
+		t.Fatalf("failed to start proxy: %v", err)
+	}
+
+	// Establish an active WebSocket connection through the proxy.
+	dialer := &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	wsConn, _, err := dialer.DialContext(context.Background(), fmt.Sprintf("ws://%s/ws", addr), nil)
+	if err != nil {
+		t.Fatalf("WebSocket dial failed: %v", err)
+	}
+	defer func() { _ = wsConn.Close() }()
+
+	// Wait for the upstream to confirm the connection is established.
+	select {
+	case <-connectedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream WebSocket connection not established in time")
+	}
+
+	// Stop the proxy with an active WebSocket connection; must return promptly.
+	doneCh := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(doneCh)
+	}()
+
+	select {
+	case <-doneCh:
+		// Stop returned — correct behaviour.
+	case <-time.After(10 * time.Second):
+		t.Fatal("p.Stop() blocked too long with an active WebSocket connection")
+	}
+}
+
+// TestProxyVerboseLogging verifies that verbose mode logs HTTP request details.
+func TestProxyVerboseLogging(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamHost := strings.TrimPrefix(upstream.URL, "https://")
+
+	var logBuf strings.Builder
+	logger := log.New(&logBuf, "", 0)
+
+	p, err := New(Options{
+		InstanceID:    "test-sandbox",
+		Domain:        "test.example.com",
+		RemotePort:    3000,
+		Token:         "token",
+		ListenAddress: "127.0.0.1:0",
+		Insecure:      true,
+		Verbose:       true,
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatalf("failed to create proxy: %v", err)
+	}
+	p.targetHost = upstreamHost
+
+	addr, err := p.Start()
+	if err != nil {
+		t.Fatalf("failed to start proxy: %v", err)
+	}
+	defer p.Stop()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://%s/health", addr))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// Give the logger a moment to flush (it's synchronous, so this is instant).
+	logged := logBuf.String()
+	if !strings.Contains(logged, "GET") || !strings.Contains(logged, "/health") {
+		t.Errorf("verbose log should contain method and path, got: %q", logged)
 	}
 }

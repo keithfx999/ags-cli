@@ -122,11 +122,17 @@ func (p *Proxy) Start() (string, error) {
 		}
 	}
 
-	// Error handler
+	// Error handler: log the full error internally, but only expose details
+	// to the client when verbose mode is enabled to avoid leaking internal
+	// host names or network topology to network-accessible clients.
 	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		p.logger.Printf("[ERROR] Proxy error: %v", err)
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "Bad Gateway: %v", err)
+		if p.options.Verbose {
+			fmt.Fprintf(w, "Bad Gateway: %v", err)
+		} else {
+			fmt.Fprint(w, "Bad Gateway")
+		}
 	}
 
 	// Create a WebSocket upgrader (we use gorilla/websocket to handle WS proxying)

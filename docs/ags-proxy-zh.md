@@ -88,3 +88,9 @@ curl http://127.0.0.1:8080
 - [ags](ags-zh.md) - 主命令
 - [ags-instance](ags-instance-zh.md) - 实例管理
 - [ags-exec](ags-exec-zh.md) - Shell 命令执行
+
+## 已知限制
+
+- **WebSocket Ping/Pong 帧不透传**：代理会在内部处理 Ping/Pong 控制帧（自动回复 Pong），而不会将其转发给对端。依赖自定义 Ping payload 进行应用层心跳检测的应用可能出现异常行为。
+
+- **Token 仅在启动时获取一次**：Access Token 与沙箱实例生命周期绑定。若沙箱在 proxy 运行期间被销毁并重新创建，proxy 将继续使用旧的（已失效的）Token，所有请求将会失败。重建沙箱后，请重启 `ags proxy` 命令。

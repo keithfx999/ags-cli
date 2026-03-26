@@ -88,3 +88,15 @@ curl http://127.0.0.1:8080
 - [ags](ags.md) - Main command
 - [ags-instance](ags-instance.md) - Instance management
 - [ags-exec](ags-exec.md) - Shell command execution
+
+## Known Limitations
+
+- **WebSocket Ping/Pong frames are not forwarded**: The proxy handles Ping/Pong
+  control frames internally (automatically replying with Pong) rather than
+  passing them through. Applications that rely on custom Ping payloads for
+  application-level heartbeats may see unexpected behaviour.
+
+- **Token is acquired once at startup**: The access token is tied to the sandbox
+  instance lifecycle. If the sandbox is destroyed and recreated while the proxy
+  is running, the proxy will continue using the old (now-invalid) token and all
+  requests will fail. Restart `ags proxy` after recreating the sandbox.
