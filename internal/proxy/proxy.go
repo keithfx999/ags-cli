@@ -1,11 +1,8 @@
 // Package proxy provides an HTTP/WebSocket reverse proxy for sandbox port forwarding.
 //
 // It bridges local HTTP/WebSocket connections to a remote sandbox service through
-// SandPortal's TLS-encrypted gateway. The proxy automatically injects access tokens
+// the AGS TLS-encrypted gateway. The proxy automatically injects access tokens
 // into all requests, supporting both HTTP and WebSocket protocols seamlessly.
-//
-// This is the Go equivalent of the Node.js http-proxy based approach used in
-// sandbox-vite-project, adapted for the AGS CLI architecture.
 package proxy
 
 import (
@@ -135,8 +132,12 @@ func (p *Proxy) Start() (string, error) {
 		}
 	}
 
-	// Create a WebSocket upgrader (we use gorilla/websocket to handle WS proxying)
+	// Create a WebSocket upgrader (we use gorilla/websocket to handle WS proxying).
+	// Use explicit buffer sizes so large WebSocket frames (e.g. binary payloads)
+	// are handled efficiently without fragmentation.
 	wsUpgrader := &websocket.Upgrader{
+		ReadBufferSize:  65536,
+		WriteBufferSize: 65536,
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for local proxy
 		},
@@ -154,6 +155,11 @@ func (p *Proxy) Start() (string, error) {
 	p.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		// ReadTimeout is intentionally omitted for the HTTP server: setting it
+		// would also cap WebSocket connections (which are long-lived upgrades).
+		// ReadHeaderTimeout alone is sufficient to mitigate Slowloris on the
+		// handshake phase. For the HTTP-only path, the upstream
+		// ResponseHeaderTimeout on the transport provides an additional bound.
 		BaseContext: func(_ net.Listener) context.Context {
 			return p.ctx
 		},
@@ -185,8 +191,8 @@ func (p *Proxy) Stop() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		_ = p.server.Shutdown(shutdownCtx)
+		p.logger.Println("Proxy stopped.")
 	}
-	p.logger.Println("Proxy stopped.")
 }
 
 // handleWebSocket bridges a WebSocket connection from the local client to the remote sandbox.
@@ -211,6 +217,8 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request, upgrader
 	// Connect to upstream WebSocket
 	dialer := &websocket.Dialer{
 		HandshakeTimeout: 15 * time.Second,
+		ReadBufferSize:   65536,
+		WriteBufferSize:  65536,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: p.options.Insecure, //nolint:gosec
 		},

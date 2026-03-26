@@ -151,7 +151,9 @@ func runProxy(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 	domain := cfg.DataPlaneRegionDomain()
 
-	listenAddr := fmt.Sprintf("%s:%d", address, localPort)
+	// Use net.JoinHostPort so IPv6 addresses are correctly bracketed,
+	// e.g. "::1" → "[::1]:8080" rather than the invalid "::1:8080".
+	listenAddr := net.JoinHostPort(address, strconv.Itoa(localPort))
 
 	p, err := proxy.New(proxy.Options{
 		InstanceID:    sandboxID,
