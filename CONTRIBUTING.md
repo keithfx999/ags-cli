@@ -102,7 +102,7 @@ For significant changes or new features, we recommend submitting a design propos
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.25.0 or later
 - Make
 
 ### Building from Source
