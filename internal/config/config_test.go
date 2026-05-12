@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -513,6 +514,79 @@ func TestValidate(t *testing.T) {
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateBasics(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  Config
+		wantErr bool
+	}{
+		{
+			name:   "valid e2b without credentials",
+			config: Config{Backend: "e2b", Output: "text"},
+		},
+		{
+			name:   "valid cloud without credentials",
+			config: Config{Backend: "cloud", Output: "json"},
+		},
+		{
+			name:    "invalid backend",
+			config:  Config{Backend: "bad", Output: "text"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid output",
+			config:  Config{Backend: "e2b", Output: "yaml"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetGlobals()
+			cfg = &tt.config
+			err := ValidateBasics()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestConfigFileContainsCredentials(t *testing.T) {
+	tests := []struct {
+		name       string
+		configTOML string
+		envKey     string
+		want       bool
+	}{
+		{name: "empty config", configTOML: `backend = "e2b"`, want: false},
+		{name: "e2b api key in config file", configTOML: `[e2b]` + "\n" + `api_key = "key"`, want: true},
+		{name: "cloud secret id in config file", configTOML: `[cloud]` + "\n" + `secret_id = "sid"`, want: true},
+		{name: "cloud secret key in config file", configTOML: `[cloud]` + "\n" + `secret_key = "skey"`, want: true},
+		{name: "credential only from env", configTOML: `backend = "e2b"`, envKey: "env-key", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetGlobals()
+			viper.SetConfigType("toml")
+			if tt.envKey != "" {
+				t.Setenv("AGS_E2B_API_KEY", tt.envKey)
+				_ = viper.BindEnv("e2b.api_key", "AGS_E2B_API_KEY")
+			}
+			if err := viper.ReadConfig(strings.NewReader(tt.configTOML)); err != nil {
+				t.Fatalf("ReadConfig() error = %v", err)
+			}
+			if got := configFileContainsCredentials(); got != tt.want {
+				t.Fatalf("configFileContainsCredentials() = %v, want %v", got, tt.want)
 			}
 		})
 	}

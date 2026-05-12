@@ -11,10 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TencentCloudAgentRuntime/ags-go-sdk/sandbox/code"
 	toolcode "github.com/TencentCloudAgentRuntime/ags-go-sdk/tool/code"
-	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
-	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
@@ -54,36 +51,12 @@ type taskResult struct {
 	totalDuration  time.Duration
 }
 
-// getCredential returns the credential from config
-func getCredential() common.CredentialIface {
-	cloudCfg := config.GetCloudConfig()
-	return common.NewCredential(cloudCfg.SecretID, cloudCfg.SecretKey)
-}
-
-// getCreateOptions returns the common create options for sandbox
-func getCreateOptions() []code.CreateOption {
-	cfg := config.Get()
-	opts := []code.CreateOption{
-		code.WithCredential(getCredential()),
-		code.WithRegion(cfg.Region),
-		code.WithSandboxTimeout(300 * time.Second),
-	}
-	if cfg.Internal {
-		opts = append(opts, code.WithDataPlaneDomain(cfg.DataPlaneDomain()))
-	}
-	return opts
-}
-
 func runCommand(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	if err := config.Validate(); err != nil {
-		return err
-	}
-
 	// Validate parameters
-	if runInstance != "" && runTool != "code-interpreter-v1" {
-		return fmt.Errorf("cannot specify both --instance and --tool-name/--tool")
+	if err := validateRunFlags(); err != nil {
+		return err
 	}
 	if runCode != "" && len(runFiles) > 0 {
 		return fmt.Errorf("cannot use both -c and -f flags")
@@ -103,6 +76,10 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no code provided")
 	}
 
+	if err := config.Validate(); err != nil {
+		return err
+	}
+
 	// Single task: use original simple logic
 	if len(tasks) == 1 && runRepeat <= 1 {
 		return runSingleTask(ctx, tasks[0])
@@ -110,6 +87,24 @@ func runCommand(cmd *cobra.Command, args []string) error {
 
 	// Multi-task execution
 	return runMultiTasks(ctx, tasks)
+}
+
+func validateRunFlags() error {
+	if runInstance != "" && runTool != "code-interpreter-v1" {
+		return fmt.Errorf("cannot specify both --instance and --tool-name/--tool")
+	}
+	if runRepeat < 1 {
+		return fmt.Errorf("--repeat must be at least 1")
+	}
+	if runMaxParallel < 0 {
+		return fmt.Errorf("--max-parallel must be 0 or greater")
+	}
+	switch runLanguage {
+	case "python", "javascript", "typescript", "r", "java", "bash":
+		return nil
+	default:
+		return fmt.Errorf("unsupported language: %s (must be one of: python, javascript, typescript, r, java, bash)", runLanguage)
+	}
 }
 
 // buildTasks builds execution tasks from input
@@ -209,34 +204,12 @@ func buildTasks(language string) ([]executionTask, error) {
 // runSingleTask runs a single task using ags-go-sdk
 func runSingleTask(ctx context.Context, task executionTask) error {
 	start := time.Now()
-	var createDuration time.Duration
 
-	var sandbox *code.Sandbox
-	var err error
-
-	if runInstance != "" {
-		// Connect to existing instance using cached token
-		sandbox, err = ConnectSandboxWithCache(ctx, runInstance)
-		if err != nil {
-			return fmt.Errorf("failed to connect to instance %s: %w", runInstance, err)
-		}
-	} else {
-		// Create new sandbox
-		createStart := time.Now()
-		sandbox, err = code.Create(ctx, runTool, getCreateOptions()...)
-		createDuration = time.Since(createStart)
-		if err != nil {
-			return fmt.Errorf("failed to create sandbox: %w", err)
-		}
-
-		if runKeepAlive {
-			output.PrintInfo(fmt.Sprintf("Created instance: %s (kept alive)", sandbox.SandboxId))
-		} else {
-			defer func() {
-				_ = sandbox.Kill(ctx)
-			}()
-		}
+	sandbox, cleanup, createDuration, err := GetOrCreateSandboxForDataPlane(ctx, runInstance, runTool, runKeepAlive)
+	if err != nil {
+		return err
 	}
+	defer cleanup()
 
 	// Execute code
 	execStart := time.Now()
@@ -288,6 +261,9 @@ func runSingleTask(ctx context.Context, task executionTask) error {
 		if runTime {
 			fmt.Fprintf(os.Stderr, "Time: %v\n", totalDuration)
 		}
+		if result.Error != nil {
+			return exitError(1, fmt.Errorf("remote execution failed: %s: %s", result.Error.Name, result.Error.Value))
+		}
 		return nil
 	}
 
@@ -321,6 +297,11 @@ func runSingleTask(ctx context.Context, task executionTask) error {
 
 	if runTime && !f.IsJSON() {
 		f.PrintTiming(timing)
+	}
+
+	// Exit with non-zero code when remote execution failed
+	if result.Error != nil {
+		return exitError(1, fmt.Errorf("remote execution failed: %s: %s", result.Error.Name, result.Error.Value))
 	}
 
 	return nil
@@ -400,43 +381,17 @@ func runMultiTasks(ctx context.Context, tasks []executionTask) error {
 func runTasksSequential(ctx context.Context, tasks []executionTask) []taskResult {
 	results := make([]taskResult, len(tasks))
 
-	var sandbox *code.Sandbox
-	var err error
-	var sandboxCreateDuration time.Duration
-
-	if runInstance != "" {
-		sandbox, err = ConnectSandboxWithCache(ctx, runInstance)
-		if err != nil {
-			for i, task := range tasks {
-				results[i] = taskResult{
-					task: task,
-					err:  fmt.Errorf("failed to connect to instance: %w", err),
-				}
+	sandbox, cleanup, sandboxCreateDuration, err := GetOrCreateSandboxForDataPlane(ctx, runInstance, runTool, runKeepAlive)
+	if err != nil {
+		for i, task := range tasks {
+			results[i] = taskResult{
+				task: task,
+				err:  err,
 			}
-			return results
 		}
-	} else {
-		createStart := time.Now()
-		sandbox, err = code.Create(ctx, runTool, getCreateOptions()...)
-		sandboxCreateDuration = time.Since(createStart)
-		if err != nil {
-			for i, task := range tasks {
-				results[i] = taskResult{
-					task: task,
-					err:  fmt.Errorf("failed to create sandbox: %w", err),
-				}
-			}
-			return results
-		}
-
-		if runKeepAlive {
-			output.PrintInfo(fmt.Sprintf("Created instance: %s (kept alive)", sandbox.SandboxId))
-		} else {
-			defer func() {
-				_ = sandbox.Kill(ctx)
-			}()
-		}
+		return results
 	}
+	defer cleanup()
 
 	runConfig := &toolcode.RunCodeConfig{
 		Language: runLanguage,
@@ -511,9 +466,10 @@ func runTasksParallel(ctx context.Context, tasks []executionTask) []taskResult {
 		}()
 	}
 
-	// Track sandboxes for cleanup
-	var sandboxes []*code.Sandbox
-	var sandboxesMu sync.Mutex
+	// Track created instances for cleanup/reporting.
+	var cleanups []func()
+	var createdIDs []string
+	var instancesMu sync.Mutex
 	var resultsMu sync.Mutex
 
 	runConfig := &toolcode.RunCodeConfig{
@@ -530,15 +486,14 @@ func runTasksParallel(ctx context.Context, tasks []executionTask) []taskResult {
 
 			taskStart := time.Now()
 
-			// Each parallel task needs its own sandbox
-			createStart := time.Now()
-			sandbox, err := code.Create(ctx, runTool, getCreateOptions()...)
-			createDuration := time.Since(createStart)
+			// Each parallel task needs its own sandbox unless a future
+			// implementation adds explicit existing-instance parallel support.
+			sandbox, cleanup, createDuration, err := GetOrCreateSandboxForDataPlane(ctx, "", runTool, runKeepAlive)
 
 			if err != nil {
 				r := taskResult{
 					task:          t,
-					err:           fmt.Errorf("failed to create sandbox: %w", err),
+					err:           err,
 					totalDuration: time.Since(taskStart),
 				}
 				resultsMu.Lock()
@@ -550,9 +505,13 @@ func runTasksParallel(ctx context.Context, tasks []executionTask) []taskResult {
 				return
 			}
 
-			sandboxesMu.Lock()
-			sandboxes = append(sandboxes, sandbox)
-			sandboxesMu.Unlock()
+			instancesMu.Lock()
+			if runKeepAlive {
+				createdIDs = append(createdIDs, sandbox.SandboxId)
+			} else {
+				cleanups = append(cleanups, cleanup)
+			}
+			instancesMu.Unlock()
 
 			var result *toolcode.Execution
 
@@ -601,15 +560,11 @@ func runTasksParallel(ctx context.Context, tasks []executionTask) []taskResult {
 
 	// Cleanup sandboxes
 	if !runKeepAlive {
-		for _, sb := range sandboxes {
-			_ = sb.Kill(ctx)
+		for _, cleanup := range cleanups {
+			cleanup()
 		}
-	} else if len(sandboxes) > 0 {
-		ids := make([]string, len(sandboxes))
-		for i, sb := range sandboxes {
-			ids[i] = sb.SandboxId
-		}
-		output.PrintInfo(fmt.Sprintf("Created %d instances (kept alive): %s", len(sandboxes), strings.Join(ids, ", ")))
+	} else if len(createdIDs) > 0 {
+		output.PrintInfo(fmt.Sprintf("Created %d instances (kept alive): %s", len(createdIDs), strings.Join(createdIDs, ", ")))
 	}
 
 	return results
@@ -709,10 +664,7 @@ func printMultiTaskResults(results []taskResult, totalDuration time.Duration) er
 	if runStream {
 		f.PrintSummaryToStderr(summary)
 		if failed > 0 {
-			if failed == len(results) {
-				os.Exit(2)
-			}
-			os.Exit(1)
+			return multiTaskExitError(failed, len(results))
 		}
 		return nil
 	}
@@ -721,10 +673,7 @@ func printMultiTaskResults(results []taskResult, totalDuration time.Duration) er
 	if !f.IsJSON() && runParallel {
 		f.PrintSummary(summary)
 		if failed > 0 {
-			if failed == len(results) {
-				os.Exit(2)
-			}
-			os.Exit(1)
+			return multiTaskExitError(failed, len(results))
 		}
 		return nil
 	}
@@ -796,13 +745,19 @@ func printMultiTaskResults(results []taskResult, totalDuration time.Duration) er
 
 	// Set exit code based on results
 	if failed > 0 {
-		if failed == len(results) {
-			os.Exit(2)
-		}
-		os.Exit(1)
+		return multiTaskExitError(failed, len(results))
 	}
 
 	return nil
+}
+
+// multiTaskExitError returns an exitCodeError for multi-task execution.
+// Exit code 2 means all tasks failed; exit code 1 means partial failure.
+func multiTaskExitError(failed, total int) error {
+	if failed == total {
+		return exitError(2, fmt.Errorf("%d/%d tasks failed", failed, total))
+	}
+	return exitError(1, fmt.Errorf("%d/%d tasks failed", failed, total))
 }
 
 // openEditor opens the default editor for the user to write code
@@ -953,6 +908,3 @@ the temporary instance.`,
 
 	parent.AddCommand(cmd)
 }
-
-// Ensure profile package is imported for potential future use
-var _ = profile.NewClientProfile

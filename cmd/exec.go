@@ -96,31 +96,7 @@ Examples:
 // getSandboxForExec gets or creates a sandbox for exec operations
 // Returns sandbox, cleanup function, create duration (0 if connecting to existing), and error
 func getSandboxForExec(ctx context.Context) (*code.Sandbox, func(), time.Duration, error) {
-	if execInstance != "" {
-		sandbox, err := ConnectSandboxWithCache(ctx, execInstance)
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("failed to connect to instance %s: %w", execInstance, err)
-		}
-		return sandbox, func() {}, 0, nil
-	}
-
-	createStart := time.Now()
-	sandbox, err := code.Create(ctx, execTool, getCreateOptions()...)
-	createDuration := time.Since(createStart)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to create sandbox: %w", err)
-	}
-
-	cleanup := func() {}
-	if execKeepAlive {
-		output.PrintInfo(fmt.Sprintf("Created instance: %s (kept alive)", sandbox.SandboxId))
-	} else {
-		cleanup = func() {
-			_ = sandbox.Kill(ctx)
-		}
-	}
-
-	return sandbox, cleanup, createDuration, nil
+	return GetOrCreateSandboxForDataPlane(ctx, execInstance, execTool, execKeepAlive)
 }
 
 func execCommand(cmd *cobra.Command, args []string) error {
@@ -136,12 +112,6 @@ func execCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot specify both --instance and --tool-name/--tool")
 	}
 
-	sandbox, cleanup, createDuration, err := getSandboxForExec(ctx)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-
 	// Build command string
 	cmdStr := strings.Join(args, " ")
 
@@ -154,6 +124,12 @@ func execCommand(cmd *cobra.Command, args []string) error {
 		}
 		envs[parts[0]] = parts[1]
 	}
+
+	sandbox, cleanup, createDuration, err := getSandboxForExec(ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	// Build process config
 	procConfig := &command.ProcessConfig{
@@ -188,7 +164,7 @@ func execCommand(cmd *cobra.Command, args []string) error {
 			if result.Error != nil {
 				return fmt.Errorf("command failed with exit code %d: %s", result.ExitCode, *result.Error)
 			}
-			os.Exit(int(result.ExitCode))
+			return exitError(int(result.ExitCode), fmt.Errorf("command exited with code %d", result.ExitCode))
 		}
 
 		return nil
@@ -234,7 +210,7 @@ func execCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	if result.ExitCode != 0 {
-		os.Exit(int(result.ExitCode))
+		return exitError(int(result.ExitCode), fmt.Errorf("command exited with code %d", result.ExitCode))
 	}
 
 	return nil

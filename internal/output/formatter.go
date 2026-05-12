@@ -65,17 +65,17 @@ func (f *Formatter) PrintExecResult(result *ExecResult) error {
 	}
 
 	if len(result.Stderr) > 0 {
-		fmt.Fprintln(f.writer, "\n--- stderr ---")
+		fmt.Fprintln(f.errWriter, "\n--- stderr ---")
 		for _, line := range result.Stderr {
-			fmt.Fprint(f.writer, line)
+			fmt.Fprint(f.errWriter, line)
 		}
 	}
 
 	if result.Error != nil {
-		fmt.Fprintln(f.writer, "\n--- error ---")
-		fmt.Fprintf(f.writer, "%s: %s\n", result.Error.Name, result.Error.Value)
+		fmt.Fprintln(f.errWriter, "\n--- error ---")
+		fmt.Fprintf(f.errWriter, "%s: %s\n", result.Error.Name, result.Error.Value)
 		if result.Error.Traceback != "" {
-			fmt.Fprintln(f.writer, result.Error.Traceback)
+			fmt.Fprintln(f.errWriter, result.Error.Traceback)
 		}
 	}
 
@@ -332,18 +332,18 @@ func (f *Formatter) PrintFileOperation(op *FileOperation) error {
 
 	switch op.Operation {
 	case "upload":
-		fmt.Fprintf(f.writer, "✓ Uploaded %s -> %s", op.LocalPath, op.Path)
+		fmt.Fprintf(f.errWriter, "✓ Uploaded %s -> %s", op.LocalPath, op.Path)
 	case "download":
-		fmt.Fprintf(f.writer, "✓ Downloaded %s -> %s", op.Path, op.LocalPath)
+		fmt.Fprintf(f.errWriter, "✓ Downloaded %s -> %s", op.Path, op.LocalPath)
 		if op.Size > 0 {
-			fmt.Fprintf(f.writer, " (%s)", FormatSize(op.Size))
+			fmt.Fprintf(f.errWriter, " (%s)", FormatSize(op.Size))
 		}
 	case "remove":
-		fmt.Fprintf(f.writer, "✓ Removed: %s", op.Path)
+		fmt.Fprintf(f.errWriter, "✓ Removed: %s", op.Path)
 	case "mkdir":
-		fmt.Fprintf(f.writer, "✓ Created directory: %s", op.Path)
+		fmt.Fprintf(f.errWriter, "✓ Created directory: %s", op.Path)
 	}
-	fmt.Fprintln(f.writer)
+	fmt.Fprintln(f.errWriter)
 	return nil
 }
 
