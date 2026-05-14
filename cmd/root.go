@@ -4,36 +4,30 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
-	"github.com/TencentCloudAgentRuntime/ags-cli/internal/repl"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var (
-	cfgFile     string
-	backend     string
-	outputFmt   string
-	showVersion bool
-	// Unified flags
-	region   string
-	domain   string
-	internal bool
-	// E2B flags
-	e2bAPIKey string
-	e2bDomain string // Deprecated: use --domain
-	e2bRegion string // Deprecated: use --region
-	// Cloud flags
-	cloudSecretID  string
-	cloudSecretKey string
-	cloudRegion    string // Deprecated: use --region
-	cloudInternal  bool   // Deprecated: use --internal
+	cfgFile        string
+	backend        string
+	outputFmt      string
+	showVersion    bool
+	region         string
+	domain         string
+	internal       bool
+	apiKey         string
+	secretID       string
+	secretKey      string
+	jqExpr         string
+	nonInteractive bool
+	noColor        bool
 	configInitErr  error
 )
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:           "ags",
 	Short:         "AGS CLI - Agent Sandbox Command Line Interface",
@@ -41,47 +35,66 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	Long: `AGS CLI is a command line tool for managing Agent Sandbox tools and instances.
 
-It supports both E2B API and Tencent Cloud API backends, allowing you to:
-  - Manage sandbox tools (templates)
-  - Create, list, and delete sandbox instances
-  - Execute code in sandbox instances
-  - Interactive REPL mode for management commands
-
 Examples:
-  # List cloud-managed tools (requires cloud backend credentials)
-  ags --backend cloud tool list
+  id=$(ags instance create -t code-interpreter-v1 -o json --jq '.Data.Id')
+  ags instance code run "$id" -c "print('Hello, World!')"
+  ags instance delete "$id"
 
-  # Create/start a new instance
-  ags instance create --tool code-interpreter-v1
-  ags instance start --tool code-interpreter-v1
-
-  # Delete/stop an instance
-  ags instance delete <instance-id>
-  ags instance stop <instance-id>
-
-  # Execute code
-  ags run -c "print('Hello, World!')"
-
-  # Enter REPL mode (default when no command is given)
-  ags`,
-	Run: func(cmd *cobra.Command, args []string) {
+  ags status
+  ags doctor`,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
-			printVersion()
-			return
+			return Wrap("version", versionFn)(cmd, args)
 		}
-		runREPL(cmd, args)
+		if isJSON() {
+			return Wrap("schema", schemaFn)(cmd, []string{})
+		}
+		return cmd.Help()
 	},
 }
 
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// PersistentPreRunE validates config basics for all commands except help/version/completion/docs
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		initConfig()
+		explicitJSON := outputFmt == "json" || hasRawOutputFlag("json")
+		wantJSON := explicitJSON || config.GetOutput() == "json"
+		wantNDJSON := outputFmt == "ndjson" || config.GetOutput() == "ndjson" || hasRawOutputFlag("ndjson")
+		hasJQ := jqExpr != "" || hasRawFlag("--jq")
+
+		if hasJQ && !explicitJSON {
+			fmt.Fprintln(os.Stderr, "Error: --jq can only be used with -o json")
+			os.Exit(output.ExitUsage)
+		}
+		if wantNDJSON {
+			fmt.Fprintln(os.Stderr, "Error: -o ndjson is not supported with --help")
+			os.Exit(output.ExitUsage)
+		}
+		if wantJSON {
+			cmdID := canonicalCommandID(cmd)
+			if cmdID == "" {
+				_ = Wrap("schema", schemaFn)(cmd, []string{})
+			} else {
+				_ = Wrap("schema", schemaFn)(cmd, []string{cmdID})
+			}
+			return
+		}
+		defaultHelp(cmd, args)
+	})
+
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		explicitJSON := outputFmt == "json" || hasRawOutputFlag("json")
+		if jqExpr != "" && !explicitJSON {
+			return exitError(output.ExitUsage, fmt.Errorf("--jq can only be used with -o json"))
+		}
+		if config.GetOutput() == "ndjson" && !isNDJSONAllowedCommand(cmd) {
+			return exitError(output.ExitUsage, fmt.Errorf("-o ndjson is only supported with 'instance code run --stream' and 'instance exec --stream'"))
+		}
 		if shouldSkipConfigPreflight(cmd) {
 			return nil
 		}
-		// Root command with --version should not require valid config
 		if cmd == rootCmd && showVersion {
 			return nil
 		}
@@ -91,103 +104,173 @@ func init() {
 		return config.ValidateBasics()
 	}
 
-	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.ags/config.toml)")
 	rootCmd.PersistentFlags().StringVar(&backend, "backend", "", "API backend: e2b or cloud")
-	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "", "output format: text or json")
-
-	// Version flag (local to root command only)
+	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "", "output format: text, json, or ndjson")
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print version information")
-
-	// Unified flags (recommended)
 	rootCmd.PersistentFlags().StringVar(&region, "region", "", "Region for API access (default: ap-guangzhou)")
 	rootCmd.PersistentFlags().StringVar(&domain, "domain", "", "Base domain (default: tencentags.com)")
-	rootCmd.PersistentFlags().BoolVar(&internal, "internal", false, "Use internal endpoints (for Tencent Cloud internal network)")
-
-	// E2B flags
-	rootCmd.PersistentFlags().StringVar(&e2bAPIKey, "e2b-api-key", "", "E2B API key")
-	rootCmd.PersistentFlags().StringVar(&e2bDomain, "e2b-domain", "", "E2B domain (deprecated: use --domain)")
-	rootCmd.PersistentFlags().StringVar(&e2bRegion, "e2b-region", "", "E2B region (deprecated: use --region)")
-
-	// Cloud flags
-	rootCmd.PersistentFlags().StringVar(&cloudSecretID, "cloud-secret-id", "", "Tencent Cloud SecretID")
-	rootCmd.PersistentFlags().StringVar(&cloudSecretKey, "cloud-secret-key", "", "Tencent Cloud SecretKey")
-	rootCmd.PersistentFlags().StringVar(&cloudRegion, "cloud-region", "", "Tencent Cloud region (deprecated: use --region)")
-	rootCmd.PersistentFlags().BoolVar(&cloudInternal, "cloud-internal", false, "Use internal endpoints (deprecated: use --internal)")
-
-	// Mark deprecated flags
-	_ = rootCmd.PersistentFlags().MarkDeprecated("e2b-domain", "use --domain instead")
-	_ = rootCmd.PersistentFlags().MarkDeprecated("e2b-region", "use --region instead")
-	_ = rootCmd.PersistentFlags().MarkDeprecated("cloud-region", "use --region instead")
-	_ = rootCmd.PersistentFlags().MarkDeprecated("cloud-internal", "use --internal instead")
+	rootCmd.PersistentFlags().BoolVar(&internal, "internal", false, "Use internal endpoints")
+	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key")
+	rootCmd.PersistentFlags().StringVar(&secretID, "secret-id", "", "Tencent Cloud SecretID")
+	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "Tencent Cloud SecretKey")
+	rootCmd.PersistentFlags().StringVar(&jqExpr, "jq", "", "jq expression (only with -o json)")
+	rootCmd.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Disable interactive behaviors")
+	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable ANSI color output")
 }
 
-func runREPL(cmd *cobra.Command, _ []string) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		_ = cmd.Help()
-		return
-	}
-
-	// Set up REPL command executor
-	repl.ExecuteCommand = executeREPLCommand
-
-	// If no subcommand is given, enter REPL mode
-	if err := repl.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error starting REPL:", err)
-		os.Exit(1)
-	}
-}
-
-func executeREPLCommand(args []string) error {
-	// Create a fresh command tree for REPL execution
-	newRoot := &cobra.Command{
-		Use:           "ags",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-	}
-
-	// Add subcommands
-	addToolCommand(newRoot)
-	addInstanceCommand(newRoot)
-	addRunCommand(newRoot)
-	addAPIKeyCommand(newRoot)
-	addExecCommand(newRoot)
-	addFileCommand(newRoot)
-	addBrowserCommand(newRoot)
-	addMobileCommand(newRoot)
-	addProxyCommand(newRoot)
-
-	newRoot.SetArgs(args)
-	return newRoot.Execute()
-}
-
-// Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		// Respect custom exit codes from exitCodeError (used by run/exec/mobile)
-		// Only print the error message for non-exitCodeError errors to avoid
-		// double-printing (the command handler already printed diagnostics).
-		var exitErr *exitCodeError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.code)
+	initIOStreams()
+
+	if hasRawFlag("--help") || hasRawFlag("-h") {
+		if hasRawOutputFlag("json") {
+			initConfig()
+			config.SetOutput("json")
+			for i, arg := range os.Args {
+				if (arg == "--jq") && i+1 < len(os.Args) {
+					jqExpr = os.Args[i+1]
+					break
+				}
+				if strings.HasPrefix(arg, "--jq=") {
+					jqExpr = strings.TrimPrefix(arg, "--jq=")
+					break
+				}
+			}
+			targetCmd, _, _ := rootCmd.Find(stripHelpAndOutputFlags(os.Args[1:]))
+			cmdID := ""
+			if targetCmd != nil && targetCmd != rootCmd {
+				var parts []string
+				for c := targetCmd; c != nil && c != rootCmd; c = c.Parent() {
+					parts = append([]string{c.Name()}, parts...)
+				}
+				cmdID = strings.Join(parts, ".")
+			}
+			if cmdID != "" {
+				for _, s := range getAllSchemas() {
+					if s.Name == cmdID && !s.SupportsJson {
+						fmt.Fprintf(os.Stderr, "Error: %s does not support -o json\n", cmdID)
+						os.Exit(output.ExitUsage)
+					}
+				}
+			}
+			var schemaErr error
+			if cmdID == "" {
+				schemaErr = Wrap("schema", schemaFn)(rootCmd, []string{})
+			} else {
+				schemaErr = Wrap("schema", schemaFn)(rootCmd, []string{cmdID})
+			}
+			if schemaErr != nil {
+				cliErr := output.ClassifyError(schemaErr)
+				fmt.Fprintln(os.Stderr, "Error:", cliErr.Failure.Message)
+				os.Exit(cliErr.ExitCode)
+			}
+			return
 		}
-		printCommandError(err)
-		os.Exit(1)
+	}
+
+	if cmd, err := rootCmd.ExecuteC(); err != nil {
+		var envDone *envelopeAlreadyWritten
+		if errors.As(err, &envDone) {
+			os.Exit(envDone.code)
+		}
+		cliErr := output.ClassifyError(err)
+		if cliErr.ExitCode == output.ExitGenericError && isCobraUsageError(err) {
+			cliErr = output.NewUsageError("INVALID_USAGE", err.Error(), "")
+		}
+		if isJSON() {
+			cmdID := canonicalCommandID(cmd)
+			env := output.NewFailedEnvelope(cmdID, cliErr.Failure, config.GetBackend(), 0)
+			if jqErr := output.RenderEnvelope(os.Stdout, env, jqExpr); jqErr != nil {
+				jqFailure := output.NewUsageError("INVALID_JQ_EXPRESSION", jqErr.Error(), "Check your --jq expression syntax.")
+				jqEnv := output.NewFailedEnvelope(cmdID, jqFailure.Failure, config.GetBackend(), 0)
+				_ = output.RenderEnvelopeToStdout(jqEnv)
+				os.Exit(output.ExitUsage)
+			}
+		} else {
+			fmt.Fprintln(ios.ErrOut, "Error:", cliErr.Failure.Message)
+		}
+		os.Exit(cliErr.ExitCode)
 	}
 }
 
-func printCommandError(err error) {
-	if config.GetOutput() == "json" {
-		output.PrintError(err)
-		return
+func canonicalCommandID(cmd *cobra.Command) string {
+	var parts []string
+	for c := cmd; c != nil && c != rootCmd; c = c.Parent() {
+		parts = append([]string{c.Name()}, parts...)
 	}
-	fmt.Fprintln(os.Stderr, "Error:", err)
+	return strings.Join(parts, ".")
+}
+
+func stripHelpAndOutputFlags(args []string) []string {
+	var result []string
+	skip := false
+	for _, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if a == "--help" || a == "-h" {
+			continue
+		}
+		if a == "-o" || a == "--output" {
+			skip = true
+			continue
+		}
+		if strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output=") {
+			continue
+		}
+		if a == "--jq" {
+			skip = true
+			continue
+		}
+		if strings.HasPrefix(a, "--jq=") {
+			continue
+		}
+		result = append(result, a)
+	}
+	return result
+}
+
+func hasRawOutputFlag(value string) bool {
+	for i, arg := range os.Args {
+		if (arg == "-o" || arg == "--output") && i+1 < len(os.Args) && os.Args[i+1] == value {
+			return true
+		}
+		if arg == "-o"+value || arg == "--output="+value {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRawFlag(flag string) bool {
+	for _, arg := range os.Args {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func isCobraUsageError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "accepts ") ||
+		strings.Contains(msg, "required") ||
+		strings.Contains(msg, "requires ") ||
+		strings.Contains(msg, "unknown command") ||
+		strings.Contains(msg, "unknown flag") ||
+		strings.Contains(msg, "invalid argument") ||
+		strings.Contains(msg, "unknown shorthand")
+}
+
+func isNDJSONAllowedCommand(cmd *cobra.Command) bool {
+	return cmd.Name() == "run" || cmd.Name() == "exec"
 }
 
 func shouldSkipConfigPreflight(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "help", "version", "completion", "docs":
+		case "help", "version", "completion", "docs", "status", "capabilities", "schema", "doctor":
 			return true
 		}
 	}
@@ -196,51 +279,39 @@ func shouldSkipConfigPreflight(cmd *cobra.Command) bool {
 
 func initConfig() {
 	configInitErr = nil
-
-	// Set config file if provided
 	if cfgFile != "" {
 		config.SetConfigFile(cfgFile)
 	}
-
-	// Initialize config
 	if err := config.Init(); err != nil {
 		configInitErr = err
 	}
+	// Merge env vars into interactive/color flags
+	if os.Getenv("NO_COLOR") != "" {
+		noColor = true
+	}
+	if os.Getenv("TERM") == "dumb" {
+		noColor = true
+		nonInteractive = true
+	}
+	if os.Getenv("AGS_NON_INTERACTIVE") == "1" {
+		nonInteractive = true
+	}
 
-	// Apply command line overrides
 	if backend != "" {
 		config.SetBackend(backend)
 	}
 	if outputFmt != "" {
 		config.SetOutput(outputFmt)
 	}
-
-	// Credential overrides (not subject to priority ordering)
-	if e2bAPIKey != "" {
-		config.SetE2BAPIKey(e2bAPIKey)
+	if apiKey != "" {
+		config.SetAPIKey(apiKey)
 	}
-	if cloudSecretID != "" {
-		config.SetCloudSecretID(cloudSecretID)
+	if secretID != "" {
+		config.SetSecretID(secretID)
 	}
-	if cloudSecretKey != "" {
-		config.SetCloudSecretKey(cloudSecretKey)
+	if secretKey != "" {
+		config.SetSecretKey(secretKey)
 	}
-
-	// Legacy overrides (lower priority, applied first so unified flags can override)
-	if e2bDomain != "" {
-		config.SetE2BDomain(e2bDomain)
-	}
-	if e2bRegion != "" {
-		config.SetE2BRegion(e2bRegion)
-	}
-	if cloudRegion != "" {
-		config.SetCloudRegion(cloudRegion)
-	}
-	if rootCmd.PersistentFlags().Changed("cloud-internal") {
-		config.SetCloudInternal(cloudInternal)
-	}
-
-	// Unified overrides (highest priority, applied last)
 	if region != "" {
 		config.SetRegion(region)
 	}

@@ -1,146 +1,43 @@
 package cmd
 
 import (
-	"strings"
-	"testing"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func TestParsePortSpec(t *testing.T) {
-	tests := []struct {
-		name        string
-		spec        string
-		wantLocal   int
-		wantRemote  int
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name:       "single port",
-			spec:       "3000",
-			wantLocal:  3000,
-			wantRemote: 3000,
-		},
-		{
-			name:       "local:remote",
-			spec:       "3000:8080",
-			wantLocal:  3000,
-			wantRemote: 8080,
-		},
-		{
-			name:       "different ports",
-			spec:       "9090:80",
-			wantLocal:  9090,
-			wantRemote: 80,
-		},
-		{
-			name:       "max port",
-			spec:       "65535",
-			wantLocal:  65535,
-			wantRemote: 65535,
-		},
-		{
-			name:       "min port",
-			spec:       "1",
-			wantLocal:  1,
-			wantRemote: 1,
-		},
-		{
-			name:        "invalid single port",
-			spec:        "abc",
-			wantErr:     true,
-			errContains: "invalid port",
-		},
-		{
-			name:        "port zero",
-			spec:        "0",
-			wantErr:     true,
-			errContains: "between 1 and 65535",
-		},
-		{
-			name:        "port too large",
-			spec:        "70000",
-			wantErr:     true,
-			errContains: "between 1 and 65535",
-		},
-		{
-			name:        "negative port",
-			spec:        "-1",
-			wantErr:     true,
-			errContains: "between 1 and 65535",
-		},
-		{
-			name:        "invalid local port",
-			spec:        "abc:3000",
-			wantErr:     true,
-			errContains: "invalid local port",
-		},
-		{
-			name:        "invalid remote port",
-			spec:        "3000:abc",
-			wantErr:     true,
-			errContains: "invalid remote port",
-		},
-		{
-			name:        "local port zero",
-			spec:        "0:3000",
-			wantErr:     true,
-			errContains: "local port must be between",
-		},
-		{
-			name:        "remote port zero",
-			spec:        "3000:0",
-			wantErr:     true,
-			errContains: "remote port must be between",
-		},
-		{
-			name:        "local port too large",
-			spec:        "70000:3000",
-			wantErr:     true,
-			errContains: "local port must be between",
-		},
-		{
-			name:        "remote port too large",
-			spec:        "3000:70000",
-			wantErr:     true,
-			errContains: "remote port must be between",
-		},
-		{
-			name:        "empty spec",
-			spec:        "",
-			wantErr:     true,
-			errContains: "invalid port",
-		},
-		{
-			name:        "multiple colons treated as local:remote with bad remote",
-			spec:        "8080:80:8080",
-			wantErr:     true,
-			errContains: "invalid remote port",
-		},
-	}
+var _ = Describe("parsePortSpec", func() {
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			local, remote, err := parsePortSpec(tt.spec)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errContains != "" {
-					if got := err.Error(); !strings.Contains(got, tt.errContains) {
-						t.Errorf("error %q should contain %q", got, tt.errContains)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if local != tt.wantLocal {
-				t.Errorf("localPort = %d, want %d", local, tt.wantLocal)
-			}
-			if remote != tt.wantRemote {
-				t.Errorf("remotePort = %d, want %d", remote, tt.wantRemote)
-			}
-		})
-	}
-}
+	DescribeTable("valid specs",
+		func(spec string, wantLocal, wantRemote int) {
+			local, remote, err := parsePortSpec(spec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(local).To(Equal(wantLocal))
+			Expect(remote).To(Equal(wantRemote))
+		},
+		Entry("single port", "3000", 3000, 3000),
+		Entry("local:remote", "3000:8080", 3000, 8080),
+		Entry("different ports", "9090:80", 9090, 80),
+		Entry("max port", "65535", 65535, 65535),
+		Entry("min port", "1", 1, 1),
+	)
+
+	DescribeTable("invalid specs",
+		func(spec, errSubstr string) {
+			_, _, err := parsePortSpec(spec)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(errSubstr))
+		},
+		Entry("invalid single port", "abc", "invalid port"),
+		Entry("port zero", "0", "between 1 and 65535"),
+		Entry("port too large", "70000", "between 1 and 65535"),
+		Entry("negative port", "-1", "between 1 and 65535"),
+		Entry("invalid local port", "abc:3000", "invalid local port"),
+		Entry("invalid remote port", "3000:abc", "invalid remote port"),
+		Entry("local port zero", "0:3000", "local port must be between"),
+		Entry("remote port zero", "3000:0", "remote port must be between"),
+		Entry("local port too large", "70000:3000", "local port must be between"),
+		Entry("remote port too large", "3000:70000", "remote port must be between"),
+		Entry("empty spec", "", "invalid port"),
+		Entry("multiple colons", "8080:80:8080", "invalid remote port"),
+	)
+})

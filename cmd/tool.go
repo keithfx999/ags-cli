@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
-	"time"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/client"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
@@ -13,7 +13,6 @@ import (
 )
 
 var (
-	// tool create flags
 	toolCreateName              string
 	toolCreateType              string
 	toolCreateDescription       string
@@ -24,14 +23,15 @@ var (
 	toolCreateMounts            []string
 	toolCreateVPCSubnets        []string
 	toolCreateVPCSecurityGroups []string
+	toolCreateClientToken       string
+	toolCreateRequest           string
 
-	// tool update flags
 	toolUpdateDescription string
 	toolUpdateNetworkMode string
 	toolUpdateTags        []string
 	toolUpdateClearTags   bool
+	toolUpdateRequest     string
 
-	// tool list flags
 	toolListIDs              []string
 	toolListStatus           string
 	toolListType             string
@@ -40,184 +40,113 @@ var (
 	toolListTags             []string
 	toolListOffset           int
 	toolListLimit            int
-	toolListShort            bool
-	toolListNoHeader         bool
-
-	// tool common flags
-	toolTime bool
 )
 
-// toolListCmd represents the tool list command
-var toolListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"ls"},
-	Short:   "List available tools",
-	Long: `List sandbox tools with optional filtering and pagination.
-
-Options:
-  --id: Specific tool IDs to query (can be specified multiple times, max 100)
-
-Filter options (ignored when --id is specified):
-  --status: CREATING, ACTIVE, DELETING, FAILED
-  --type: code-interpreter, browser, mobile, osworld, custom, swebench
-  --created-since: Relative time, e.g., "5m", "1h", "24h"
-  --created-since-time: Absolute time (RFC3339), e.g., "2024-01-15T10:30:00Z"
-  --tag: Filter by tag (key=value format, can be specified multiple times)
-
-Note: --created-since and --created-since-time cannot be used together.
-
-Examples:
-  ags tool list
-  ags tool list --id tool-xxx --id tool-yyy
-  ags tool list --status ACTIVE
-  ags tool list --type code-interpreter --limit 10
-  ags tool list --created-since 24h
-  ags tool list --tag env=prod
-  ags tool list --short
-  ags tool list --no-header`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
-
-		// Validate mutually exclusive options
-		if toolListCreatedSince != "" && toolListCreatedSinceTime != "" {
-			return fmt.Errorf("--created-since and --created-since-time cannot be used together")
-		}
-
-		// Parse tags
-		tags := make(map[string]string)
-		for _, tag := range toolListTags {
-			parts := strings.SplitN(tag, "=", 2)
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
-			}
-			tags[parts[0]] = parts[1]
-		}
-
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
-		}
-
-		result, err := apiClient.ListTools(ctx, &client.ListToolsOptions{
-			ToolIDs:          toolListIDs,
-			Status:           toolListStatus,
-			ToolType:         toolListType,
-			CreatedSince:     toolListCreatedSince,
-			CreatedSinceTime: toolListCreatedSinceTime,
-			Tags:             tags,
-			Offset:           toolListOffset,
-			Limit:            toolListLimit,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list tools: %w", err)
-		}
-
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if toolTime {
-			timing = output.NewTiming(totalDuration)
-		}
-
-		f := output.NewFormatter()
-
-		if len(result.Tools) == 0 {
-			output.PrintInfo("No tools found")
-			if toolTime && !f.IsJSON() {
-				f.PrintTiming(timing)
-			}
-			return nil
-		}
-
-		var headers []string
-		var rows [][]string
-
-		if toolListShort {
-			// Short format: only ID and NAME
-			headers = []string{"ID", "NAME"}
-			rows = make([][]string, len(result.Tools))
-			for i, t := range result.Tools {
-				rows[i] = []string{t.ID, t.Name}
-			}
-		} else {
-			// Full format: ID, NAME, TYPE, NETWORK, MOUNTS, DESCRIPTION, TAGS, CREATED
-			headers = []string{"ID", "NAME", "TYPE", "NETWORK", "MOUNTS", "DESCRIPTION", "TAGS", "CREATED"}
-			rows = make([][]string, len(result.Tools))
-			for i, t := range result.Tools {
-				// Format tags as key=value pairs
-				var tagStrs []string
-				for k, v := range t.Tags {
-					tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", k, v))
-				}
-				tagsStr := strings.Join(tagStrs, ", ")
-				mountsStr := client.FormatStorageMountSummary(t.StorageMounts)
-				networkMode := t.NetworkMode
-				if networkMode == "" {
-					networkMode = "-"
-				}
-				createdAt := formatShortTime(t.CreatedAt)
-				rows[i] = []string{t.ID, t.Name, t.Type, networkMode, mountsStr, output.TruncateString(t.Description, 40), tagsStr, createdAt}
-			}
-		}
-
-		// Build pagination info
-		var pagination *output.Pagination
-		if result.TotalCount > 0 {
-			pagination = &output.Pagination{
-				Offset: toolListOffset,
-				Limit:  toolListLimit,
-				Total:  result.TotalCount,
-			}
-		}
-
-		if toolListNoHeader {
-			if err := f.PrintTableNoHeader(rows); err != nil {
-				return err
-			}
-		} else {
-			if err := f.PrintTable(headers, rows, pagination); err != nil {
-				return err
-			}
-		}
-
-		if toolTime && !f.IsJSON() {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
+func requireCloudBackend() error {
+	if config.GetBackend() != "cloud" {
+		return output.NewBackendUnsupportedError(
+			"this command is only supported with cloud backend",
+			"Use --backend cloud with TENCENTCLOUD_SECRET_ID and TENCENTCLOUD_SECRET_KEY.")
+	}
+	return nil
 }
 
-// toolGetCmd represents the tool get command
-var toolGetCmd = &cobra.Command{
-	Use:   "get <tool-id>",
-	Short: "Get tool details",
-	Long:  `Get detailed information about a specific tool.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
-		toolID := args[0]
+func toolListFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	if err := requireCloudBackend(); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
 
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
+	if toolListCreatedSince != "" && toolListCreatedSinceTime != "" {
+		return nil, fmt.Errorf("--created-since and --created-since-time cannot be used together")
+	}
+
+	tags := make(map[string]string)
+	for _, tag := range toolListTags {
+		parts := strings.SplitN(tag, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
 		}
+		tags[parts[0]] = parts[1]
+	}
 
-		tool, err := apiClient.GetTool(ctx, toolID)
-		if err != nil {
-			return fmt.Errorf("failed to get tool: %w", err)
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := apiClient.ListTools(ctx, &client.ListToolsOptions{
+		ToolIDs:          toolListIDs,
+		Status:           toolListStatus,
+		ToolType:         toolListType,
+		CreatedSince:     toolListCreatedSince,
+		CreatedSinceTime: toolListCreatedSinceTime,
+		Tags:             tags,
+		Offset:           toolListOffset,
+		Limit:            toolListLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, len(result.Tools))
+	for i := range result.Tools {
+		items[i] = toCanonicalToolData(&result.Tools[i])
+	}
+	data := map[string]any{
+		"Items": items,
+		"Pagination": map[string]any{
+			"Offset": toolListOffset, "Limit": toolListLimit,
+			"Total": result.TotalCount, "NextCursor": nil,
+		},
+	}
+
+	return OK(data, func(w io.Writer) {
+		if len(result.Tools) == 0 {
+			fmt.Fprintln(ios.ErrOut, "No tools found")
+			return
 		}
-
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if toolTime {
-			timing = output.NewTiming(totalDuration)
+		headers := []string{"ID", "NAME", "TYPE", "STATUS", "NETWORK", "DESCRIPTION", "TAGS", "CREATED"}
+		rows := make([][]string, len(result.Tools))
+		for i, t := range result.Tools {
+			var tagStrs []string
+			for k, v := range t.Tags {
+				tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", k, v))
+			}
+			nm := t.NetworkMode
+			if nm == "" {
+				nm = "-"
+			}
+			status := t.Status
+			if status == "" {
+				status = "-"
+			}
+			rows[i] = []string{t.ID, t.Name, t.Type, status, nm, output.TruncateString(t.Description, 40), strings.Join(tagStrs, ","), formatShortTime(t.CreatedAt)}
 		}
+		printTableWithPagination(w, headers, rows, len(rows), result.TotalCount)
+	}), nil
+}
 
-		f := output.NewFormatter()
+func toolGetFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	if err := requireCloudBackend(); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	toolID := args[0]
 
-		// Format tags
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+
+	tool, err := apiClient.GetTool(ctx, toolID)
+	if err != nil {
+		return nil, err
+	}
+
+	data := toCanonicalToolData(tool)
+
+	return OK(data, func(w io.Writer) {
 		var tagStrs []string
 		for k, v := range tool.Tags {
 			tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", k, v))
@@ -226,127 +155,408 @@ var toolGetCmd = &cobra.Command{
 		if tagsStr == "" {
 			tagsStr = "-"
 		}
-
-		// Format storage mounts
-		mountsStr := formatStorageMountsDetail(tool.StorageMounts)
-
-		// Format network mode
-		networkMode := tool.NetworkMode
-		if networkMode == "" {
-			networkMode = "-"
+		nm := tool.NetworkMode
+		if nm == "" {
+			nm = "-"
 		}
-
-		if f.IsJSON() {
-			data := map[string]any{
-				"id":          tool.ID,
-				"name":        tool.Name,
-				"type":        tool.Type,
-				"networkMode": networkMode,
-				"description": tool.Description,
-				"tags":        tool.Tags,
-				"createdAt":   tool.CreatedAt,
-			}
-			// Add VPC config if present
-			if tool.NetworkMode == "VPC" && tool.VPCConfig != nil {
-				data["vpcConfig"] = tool.VPCConfig
-			}
-			if tool.RoleArn != "" {
-				data["roleArn"] = tool.RoleArn
-			}
-			if len(tool.StorageMounts) > 0 {
-				data["storageMounts"] = tool.StorageMounts
-			}
-			if timing != nil {
-				data["timing"] = timing
-			}
-			return f.PrintJSON(data)
+		kvs := []KeyValue{
+			{Key: "ID", Value: tool.ID}, {Key: "Name", Value: tool.Name},
+			{Key: "Type", Value: tool.Type}, {Key: "NetworkMode", Value: nm},
 		}
-
-		// Build ordered output
-		result := []output.KeyValue{
-			{Key: "ID", Value: tool.ID},
-			{Key: "Name", Value: tool.Name},
-			{Key: "Type", Value: tool.Type},
-			{Key: "NetworkMode", Value: networkMode},
-		}
-
-		// Add VPC config if present
 		if tool.NetworkMode == "VPC" && tool.VPCConfig != nil {
-			subnets, secGroups := client.FormatVPCConfigSummary(tool.VPCConfig)
-			result = append(result,
-				output.KeyValue{Key: "VPCSubnets", Value: subnets},
-				output.KeyValue{Key: "VPCSecGroups", Value: secGroups},
-			)
+			s, sg := client.FormatVPCConfigSummary(tool.VPCConfig)
+			kvs = append(kvs, KeyValue{Key: "VPCSubnets", Value: s}, KeyValue{Key: "VPCSecGroups", Value: sg})
 		}
-
-		result = append(result,
-			output.KeyValue{Key: "Description", Value: tool.Description},
-			output.KeyValue{Key: "Tags", Value: tagsStr},
-			output.KeyValue{Key: "Created", Value: formatShortTime(tool.CreatedAt)},
-		)
-
-		// Add RoleArn if present
+		kvs = append(kvs, KeyValue{Key: "Description", Value: tool.Description}, KeyValue{Key: "Tags", Value: tagsStr}, KeyValue{Key: "Created", Value: formatShortTime(tool.CreatedAt)})
 		if tool.RoleArn != "" {
-			result = append(result, output.KeyValue{Key: "RoleArn", Value: tool.RoleArn})
+			kvs = append(kvs, KeyValue{Key: "RoleArn", Value: tool.RoleArn})
 		}
-
-		// Add StorageMounts if present
-		if mountsStr != "" {
-			result = append(result, output.KeyValue{Key: "StorageMounts", Value: mountsStr})
+		if m := formatStorageMountsDetail(tool.StorageMounts); m != "" {
+			kvs = append(kvs, KeyValue{Key: "StorageMounts", Value: m})
 		}
-
-		if err := f.PrintKeyValue(result); err != nil {
-			return err
-		}
-
-		if toolTime {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
+		printKV(w, kvs)
+	}), nil
 }
 
-// formatStorageMountsDetail formats storage mounts for detailed display
+func toolCreateFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	if err := requireCloudBackend(); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+
+	if toolCreateRequest != "" {
+		hasBusinessFlag := cmd.Flags().Changed("name") || cmd.Flags().Changed("type") ||
+			cmd.Flags().Changed("description") || cmd.Flags().Changed("timeout") ||
+			cmd.Flags().Changed("network") || cmd.Flags().Changed("tag") ||
+			cmd.Flags().Changed("role-arn") || cmd.Flags().Changed("mount") ||
+			cmd.Flags().Changed("client-token") || cmd.Flags().Changed("vpc-subnet") ||
+			cmd.Flags().Changed("vpc-sg")
+		if hasBusinessFlag {
+			return nil, output.NewUsageError("REQUEST_FLAG_CONFLICT",
+				"--request cannot be used with other tool create flags",
+				"Use --request for the complete request body, or use individual flags.")
+		}
+		return toolCreateFromRequest(ctx)
+	}
+
+	if toolCreateName == "" {
+		return nil, fmt.Errorf("tool name is required (-n/--name)")
+	}
+	if toolCreateType == "" {
+		return nil, fmt.Errorf("tool type is required (-t/--type)")
+	}
+
+	if toolCreateNetworkMode != "" {
+		valid := map[string]bool{"PUBLIC": true, "VPC": true, "SANDBOX": true, "INTERNAL_SERVICE": true}
+		if !valid[toolCreateNetworkMode] {
+			return nil, fmt.Errorf("invalid network mode: %s", toolCreateNetworkMode)
+		}
+	}
+	if toolCreateNetworkMode == "VPC" {
+		if len(toolCreateVPCSubnets) == 0 {
+			return nil, fmt.Errorf("--vpc-subnet is required when --network=VPC")
+		}
+		if len(toolCreateVPCSecurityGroups) == 0 {
+			return nil, fmt.Errorf("--vpc-sg is required when --network=VPC")
+		}
+	}
+
+	tags := make(map[string]string)
+	for _, tag := range toolCreateTags {
+		parts := strings.SplitN(tag, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
+		}
+		tags[parts[0]] = parts[1]
+	}
+
+	var storageMounts []client.StorageMount
+	for _, ms := range toolCreateMounts {
+		m, err := client.ParseStorageMount(ms)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --mount: %w", err)
+		}
+		storageMounts = append(storageMounts, *m)
+	}
+	if len(storageMounts) > 0 && toolCreateRoleArn == "" {
+		return nil, fmt.Errorf("--role-arn is required when --mount is specified")
+	}
+
+	var vpcConfig *client.VPCConfig
+	if toolCreateNetworkMode == "VPC" {
+		vpcConfig = &client.VPCConfig{SubnetIds: toolCreateVPCSubnets, SecurityGroupIds: toolCreateVPCSecurityGroups}
+	}
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+
+	tool, err := apiClient.CreateTool(ctx, &client.CreateToolOptions{
+		Name: toolCreateName, Type: toolCreateType, Description: toolCreateDescription,
+		DefaultTimeout: toolCreateTimeout, NetworkMode: toolCreateNetworkMode,
+		VPCConfig: vpcConfig, Tags: tags, RoleArn: toolCreateRoleArn, StorageMounts: storageMounts,
+		ClientToken: toolCreateClientToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	data := map[string]any{
+		"Id": tool.ID, "Name": tool.Name, "Type": tool.Type,
+		"NetworkMode": tool.NetworkMode, "Description": tool.Description,
+	}
+
+	return OKWithEffects(data, func(w io.Writer) {
+		fmt.Fprintf(ios.ErrOut, "Tool created: %s\n", tool.ID)
+		printKV(w, []KeyValue{
+			{Key: "ID", Value: tool.ID}, {Key: "Name", Value: tool.Name},
+			{Key: "Type", Value: tool.Type}, {Key: "NetworkMode", Value: tool.NetworkMode},
+			{Key: "Description", Value: tool.Description},
+		})
+	}, output.Effect{Kind: "create", Resource: "tool", Id: tool.ID}), nil
+}
+
+func toolCreateFromRequest(ctx context.Context) (*CmdResult, error) {
+	reqData, err := parseRequestFlag(toolCreateRequest)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{
+		"Name": true, "Type": true, "Description": true, "NetworkMode": true,
+		"Tags": true, "StorageMounts": true, "VpcConfig": true, "ClientToken": true,
+		"DefaultTimeout": true, "RoleArn": true,
+	}
+	for k := range reqData {
+		if !known[k] {
+			return nil, output.NewUsageError("UNKNOWN_REQUEST_FIELD",
+				fmt.Sprintf("unknown field in --request: %s", k), "")
+		}
+	}
+	toolOpts := &client.CreateToolOptions{}
+	if v, ok := reqData["Name"].(string); ok {
+		toolOpts.Name = v
+	}
+	if v, ok := reqData["Type"].(string); ok {
+		toolOpts.Type = v
+	}
+	if v, ok := reqData["Description"].(string); ok {
+		toolOpts.Description = v
+	}
+	if v, ok := reqData["NetworkMode"].(string); ok {
+		toolOpts.NetworkMode = v
+	}
+	if v, ok := reqData["ClientToken"].(string); ok {
+		toolOpts.ClientToken = v
+	}
+	if v, ok := reqData["DefaultTimeout"].(string); ok {
+		toolOpts.DefaultTimeout = v
+	}
+	if v, ok := reqData["RoleArn"].(string); ok {
+		toolOpts.RoleArn = v
+	}
+	if rawTags, ok := reqData["Tags"].(map[string]any); ok {
+		tags := make(map[string]string, len(rawTags))
+		for k, v := range rawTags {
+			if s, ok := v.(string); ok {
+				tags[k] = s
+			}
+		}
+		toolOpts.Tags = tags
+	}
+	if rawVpc, ok := reqData["VpcConfig"].(map[string]any); ok {
+		vpc := &client.VPCConfig{}
+		if subs, ok := rawVpc["SubnetIds"].([]any); ok {
+			for _, s := range subs {
+				if str, ok := s.(string); ok {
+					vpc.SubnetIds = append(vpc.SubnetIds, str)
+				}
+			}
+		}
+		if sgs, ok := rawVpc["SecurityGroupIds"].([]any); ok {
+			for _, s := range sgs {
+				if str, ok := s.(string); ok {
+					vpc.SecurityGroupIds = append(vpc.SecurityGroupIds, str)
+				}
+			}
+		}
+		toolOpts.VPCConfig = vpc
+	}
+	if rawMounts, ok := reqData["StorageMounts"].([]any); ok {
+		for _, rm := range rawMounts {
+			mo, ok := rm.(map[string]any)
+			if !ok {
+				continue
+			}
+			sm := client.StorageMount{}
+			if v, ok := mo["Name"].(string); ok {
+				sm.Name = v
+			}
+			if v, ok := mo["MountPath"].(string); ok {
+				sm.MountPath = v
+			}
+			if v, ok := mo["ReadOnly"].(bool); ok {
+				sm.ReadOnly = v
+			}
+			toolOpts.StorageMounts = append(toolOpts.StorageMounts, sm)
+		}
+	}
+
+	if toolOpts.Name == "" {
+		return nil, output.NewUsageError("MISSING_REQUIRED_FIELD", "Name is required in --request", "")
+	}
+	if toolOpts.Type == "" {
+		return nil, output.NewUsageError("MISSING_REQUIRED_FIELD", "Type is required in --request", "")
+	}
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+	tool, err := apiClient.CreateTool(ctx, toolOpts)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{
+		"Id": tool.ID, "Name": tool.Name, "Type": tool.Type,
+		"NetworkMode": tool.NetworkMode, "Description": tool.Description,
+	}
+	return OKWithEffects(data, func(w io.Writer) {
+		stderr("Tool created: %s\n", tool.ID)
+		printKV(w, []KeyValue{{Key: "ID", Value: tool.ID}, {Key: "Name", Value: tool.Name}})
+	}, output.Effect{Kind: "create", Resource: "tool", Id: tool.ID}), nil
+}
+
+func toolUpdateFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	if err := requireCloudBackend(); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	toolID := args[0]
+
+	if toolUpdateRequest != "" {
+		hasBusinessFlag := cmd.Flags().Changed("description") || cmd.Flags().Changed("network") ||
+			cmd.Flags().Changed("tag") || cmd.Flags().Changed("clear-tags")
+		if hasBusinessFlag {
+			return nil, output.NewUsageError("REQUEST_FLAG_CONFLICT",
+				"--request cannot be used with --description, --network, --tag, or --clear-tags",
+				"Use --request for the complete request body, or use individual flags.")
+		}
+		return toolUpdateFromRequest(ctx, toolID)
+	}
+
+	descriptionSet := cmd.Flags().Changed("description")
+	networkSet := cmd.Flags().Changed("network")
+	tagsSet := cmd.Flags().Changed("tag")
+
+	if !descriptionSet && !networkSet && !tagsSet && !toolUpdateClearTags {
+		return nil, fmt.Errorf("at least one of --description, --network, --tag, --clear-tags, or --request must be specified")
+	}
+
+	opts := &client.UpdateToolOptions{ToolID: toolID}
+	if descriptionSet {
+		opts.Description = &toolUpdateDescription
+	}
+	if networkSet {
+		opts.NetworkMode = &toolUpdateNetworkMode
+	}
+	if toolUpdateClearTags {
+		opts.Tags = make(map[string]string)
+	} else if tagsSet {
+		tags := make(map[string]string)
+		for _, tag := range toolUpdateTags {
+			parts := strings.SplitN(tag, "=", 2)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
+			}
+			tags[parts[0]] = parts[1]
+		}
+		opts.Tags = tags
+	}
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+	if err := apiClient.UpdateTool(ctx, opts); err != nil {
+		return nil, err
+	}
+
+	return OK(map[string]any{"Id": toolID}, func(w io.Writer) {
+		fmt.Fprintf(ios.ErrOut, "Tool updated: %s\n", toolID)
+	}), nil
+}
+
+func toolUpdateFromRequest(ctx context.Context, toolID string) (*CmdResult, error) {
+	reqData, err := parseRequestFlag(toolUpdateRequest)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{
+		"Description": true, "NetworkMode": true, "Tags": true,
+	}
+	for k := range reqData {
+		if !known[k] {
+			return nil, output.NewUsageError("UNKNOWN_REQUEST_FIELD",
+				fmt.Sprintf("unknown field in --request: %s", k),
+				fmt.Sprintf("Allowed fields: Description, NetworkMode, Tags. Use 'ags schema tool.update -o json' for the full schema."))
+		}
+	}
+
+	opts := &client.UpdateToolOptions{ToolID: toolID}
+	if v, ok := reqData["Description"].(string); ok {
+		opts.Description = &v
+	}
+	if v, ok := reqData["NetworkMode"].(string); ok {
+		opts.NetworkMode = &v
+	}
+	if rawTags, ok := reqData["Tags"].(map[string]any); ok {
+		tags := make(map[string]string, len(rawTags))
+		for k, v := range rawTags {
+			if s, ok := v.(string); ok {
+				tags[k] = s
+			}
+		}
+		opts.Tags = tags
+	}
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+	if err := apiClient.UpdateTool(ctx, opts); err != nil {
+		return nil, err
+	}
+
+	return OK(map[string]any{"Id": toolID}, func(w io.Writer) {
+		stderr("Tool updated: %s\n", toolID)
+	}), nil
+}
+
+func toolDeleteFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	if err := requireCloudBackend(); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
+
+	var failed []string
+	var warnings []string
+	for _, toolID := range args {
+		if err := apiClient.DeleteTool(ctx, toolID); err != nil {
+			stderr("Warning: failed to delete tool %s: %v\n", toolID, err)
+			failed = append(failed, toolID)
+			warnings = append(warnings, fmt.Sprintf("failed to delete %s: %v", toolID, err))
+		} else {
+			stderr("Tool deleted: %s\n", toolID)
+		}
+	}
+
+	data := map[string]any{"Deleted": len(args) - len(failed), "Failed": len(failed)}
+	if len(failed) > 0 {
+		data["FailedIds"] = failed
+		return PartialResult(data, warnings, func(w io.Writer) {}), nil
+	}
+	return OK(data, func(w io.Writer) {}), nil
+}
+
 func formatStorageMountsDetail(mounts []client.StorageMount) string {
 	if len(mounts) == 0 {
 		return ""
 	}
-
 	var lines []string
 	for i, m := range mounts {
 		lines = append(lines, fmt.Sprintf("\n  [%d] %s", i+1, m.Name))
 		if m.StorageSource != nil && m.StorageSource.Cos != nil {
-			lines = append(lines, "      Type:       cos")
-			lines = append(lines, fmt.Sprintf("      Bucket:     %s", m.StorageSource.Cos.BucketName))
-			lines = append(lines, fmt.Sprintf("      BucketPath: %s", m.StorageSource.Cos.BucketPath))
-			if m.StorageSource.Cos.Endpoint != "" {
-				lines = append(lines, fmt.Sprintf("      Endpoint:   %s", m.StorageSource.Cos.Endpoint))
-			}
+			lines = append(lines, fmt.Sprintf("      Bucket: %s", m.StorageSource.Cos.BucketName))
+			lines = append(lines, fmt.Sprintf("      Path:   %s", m.StorageSource.Cos.BucketPath))
 		}
-		lines = append(lines, fmt.Sprintf("      MountPath:  %s", m.MountPath))
-		lines = append(lines, fmt.Sprintf("      ReadOnly:   %t", m.ReadOnly))
+		lines = append(lines, fmt.Sprintf("      Mount:  %s", m.MountPath))
+		lines = append(lines, fmt.Sprintf("      RO:     %t", m.ReadOnly))
 	}
 	return strings.Join(lines, "\n")
 }
 
-// formatShortTime formats ISO8601 time to short format (MM-DD HH:MM)
 func formatShortTime(isoTime string) string {
 	if isoTime == "" {
 		return "-"
 	}
-	t, err := time.Parse(time.RFC3339, isoTime)
-	if err != nil {
+	t, err := fmt.Sscanf(isoTime, "%s", new(string))
+	_ = t
+	if err != nil || len(isoTime) < 16 {
 		return isoTime
 	}
-	return t.Local().Format("01-02 15:04")
+	return isoTime[5:16]
 }
 
 func init() {
 	addToolCommand(rootCmd)
 }
 
-// addToolCommand adds the tool command to a parent command
 func addToolCommand(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:     "tool",
@@ -355,435 +565,49 @@ func addToolCommand(parent *cobra.Command) {
 		Long:    `Manage sandbox tools (templates). Tools define the type and capabilities of sandbox instances.`,
 	}
 
-	// tool create
-	createCmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create a new sandbox tool",
-		Long: `Create a new sandbox tool (template).
-
-Tool types:
-  - code-interpreter: Python code execution sandbox
-  - browser: Browser automation sandbox
-  - mobile: Mobile device sandbox
-  - osworld: OS-level sandbox
-  - custom: Custom sandbox type
-  - swebench: SWE-Bench evaluation sandbox
-
-Network modes:
-  - PUBLIC: Public network access (default)
-  - VPC: VPC network (requires --vpc-subnet and --vpc-sg, cannot be changed after creation)
-  - SANDBOX: No network / isolated environment
-  - INTERNAL_SERVICE: Internal Tencent Cloud services only
-
-Storage mount format (--mount):
-  type=cos,name=<name>,bucket=<bucket>,src=<source-path>,dst=<target-path>[,readonly][,endpoint=<endpoint>]
-
-Examples:
-  ags tool create -n my-tool -t code-interpreter
-  ags tool create -n my-browser -t browser -d "My browser tool" --timeout 10m
-  ags tool create -n my-tool -t code-interpreter --network SANDBOX
-  ags tool create -n my-tool -t code-interpreter --tag env=prod --tag team=ai
-  ags tool create -n my-vpc-tool -t code-interpreter \
-    --network VPC \
-    --vpc-subnet subnet-xxx1 \
-    --vpc-subnet subnet-xxx2 \
-    --vpc-sg sg-yyy1
-  ags tool create -n my-tool -t code-interpreter \
-    --role-arn "qcs::cam::uin/100000:roleName/AGS_COS_Role" \
-    --mount "type=cos,name=data,bucket=my-bucket-1250000000,src=/data,dst=/mnt/data"`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			start := time.Now()
-
-			if toolCreateName == "" {
-				return fmt.Errorf("tool name is required (-n/--name)")
-			}
-			if toolCreateType == "" {
-				return fmt.Errorf("tool type is required (-t/--type)")
-			}
-			validTypes := map[string]bool{
-				"code-interpreter": true,
-				"browser":          true,
-				"mobile":           true,
-				"osworld":          true,
-				"custom":           true,
-				"swebench":         true,
-			}
-			if !validTypes[toolCreateType] {
-				return fmt.Errorf("invalid tool type: %s (must be one of: code-interpreter, browser, mobile, osworld, custom, swebench)", toolCreateType)
-			}
-
-			// Validate network mode
-			if toolCreateNetworkMode != "" {
-				validModes := map[string]bool{"PUBLIC": true, "VPC": true, "SANDBOX": true, "INTERNAL_SERVICE": true}
-				if !validModes[toolCreateNetworkMode] {
-					return fmt.Errorf("invalid network mode: %s (must be PUBLIC, VPC, SANDBOX, or INTERNAL_SERVICE)", toolCreateNetworkMode)
-				}
-			}
-
-			// Validate VPC configuration
-			if toolCreateNetworkMode == "VPC" {
-				if len(toolCreateVPCSubnets) == 0 {
-					return fmt.Errorf("--vpc-subnet is required when --network=VPC")
-				}
-				if len(toolCreateVPCSecurityGroups) == 0 {
-					return fmt.Errorf("--vpc-sg is required when --network=VPC")
-				}
-			} else if len(toolCreateVPCSubnets) > 0 || len(toolCreateVPCSecurityGroups) > 0 {
-				return fmt.Errorf("--vpc-subnet and --vpc-sg can only be used with --network=VPC")
-			}
-
-			// Parse tags
-			tags := make(map[string]string)
-			for _, tag := range toolCreateTags {
-				parts := strings.SplitN(tag, "=", 2)
-				if len(parts) != 2 {
-					return fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
-				}
-				tags[parts[0]] = parts[1]
-			}
-
-			// Parse storage mounts
-			var storageMounts []client.StorageMount
-			for _, mountStr := range toolCreateMounts {
-				mount, err := client.ParseStorageMount(mountStr)
-				if err != nil {
-					return fmt.Errorf("invalid --mount: %w", err)
-				}
-				storageMounts = append(storageMounts, *mount)
-			}
-
-			// Validate: RoleArn is required when StorageMounts is set with COS
-			if len(storageMounts) > 0 && toolCreateRoleArn == "" {
-				return fmt.Errorf("--role-arn is required when --mount is specified")
-			}
-
-			// Build VPC config if needed
-			var vpcConfig *client.VPCConfig
-			if toolCreateNetworkMode == "VPC" {
-				vpcConfig = &client.VPCConfig{
-					SubnetIds:        toolCreateVPCSubnets,
-					SecurityGroupIds: toolCreateVPCSecurityGroups,
-				}
-			}
-
-			apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-			if err != nil {
-				return fmt.Errorf("failed to create API client: %w", err)
-			}
-
-			tool, err := apiClient.CreateTool(ctx, &client.CreateToolOptions{
-				Name:           toolCreateName,
-				Type:           toolCreateType,
-				Description:    toolCreateDescription,
-				DefaultTimeout: toolCreateTimeout,
-				NetworkMode:    toolCreateNetworkMode,
-				VPCConfig:      vpcConfig,
-				Tags:           tags,
-				RoleArn:        toolCreateRoleArn,
-				StorageMounts:  storageMounts,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create tool: %w", err)
-			}
-
-			totalDuration := time.Since(start)
-			var timing *output.Timing
-			if toolTime {
-				timing = output.NewTiming(totalDuration)
-			}
-
-			f := output.NewFormatter()
-
-			if f.IsJSON() {
-				data := map[string]any{
-					"status":      "success",
-					"message":     fmt.Sprintf("Tool created: %s", tool.ID),
-					"id":          tool.ID,
-					"name":        tool.Name,
-					"type":        tool.Type,
-					"networkMode": tool.NetworkMode,
-					"description": tool.Description,
-				}
-				if tool.NetworkMode == "VPC" && tool.VPCConfig != nil {
-					data["vpcConfig"] = tool.VPCConfig
-				}
-				if tool.RoleArn != "" {
-					data["roleArn"] = tool.RoleArn
-				}
-				if len(tool.StorageMounts) > 0 {
-					data["storageMounts"] = tool.StorageMounts
-				}
-				if timing != nil {
-					data["timing"] = timing
-				}
-				return f.PrintJSON(data)
-			}
-
-			output.PrintSuccess(fmt.Sprintf("Tool created: %s", tool.ID))
-			result := []output.KeyValue{
-				{Key: "ID", Value: tool.ID},
-				{Key: "Name", Value: tool.Name},
-				{Key: "Type", Value: tool.Type},
-				{Key: "NetworkMode", Value: tool.NetworkMode},
-			}
-			if tool.NetworkMode == "VPC" && tool.VPCConfig != nil {
-				subnets, secGroups := client.FormatVPCConfigSummary(tool.VPCConfig)
-				result = append(result,
-					output.KeyValue{Key: "VPCSubnets", Value: subnets},
-					output.KeyValue{Key: "VPCSecGroups", Value: secGroups},
-				)
-			}
-			result = append(result, output.KeyValue{Key: "Description", Value: tool.Description})
-			if tool.RoleArn != "" {
-				result = append(result, output.KeyValue{Key: "RoleArn", Value: tool.RoleArn})
-			}
-			if len(tool.StorageMounts) > 0 {
-				result = append(result, output.KeyValue{Key: "StorageMounts", Value: client.FormatStorageMountSummary(tool.StorageMounts)})
-			}
-
-			if err := f.PrintKeyValue(result); err != nil {
-				return err
-			}
-
-			if toolTime {
-				f.PrintTiming(timing)
-			}
-
-			return nil
-		},
-	}
+	createCmd := &cobra.Command{Use: "create", Short: "Create a new sandbox tool", Args: cobra.NoArgs}
+	createCmd.RunE = Wrap("tool.create", toolCreateFn)
 	createCmd.Flags().StringVarP(&toolCreateName, "name", "n", "", "Tool name (required)")
-	createCmd.Flags().StringVarP(&toolCreateType, "type", "t", "", "Tool type (required): code-interpreter, browser, mobile, osworld, custom, swebench")
+	createCmd.Flags().StringVarP(&toolCreateType, "type", "t", "", "Tool type (required)")
 	createCmd.Flags().StringVarP(&toolCreateDescription, "description", "d", "", "Tool description")
 	createCmd.Flags().StringVar(&toolCreateTimeout, "timeout", "", "Default timeout (e.g., 5m, 300s, 1h)")
-	createCmd.Flags().StringVar(&toolCreateNetworkMode, "network", "", "Network mode: PUBLIC (default), VPC, SANDBOX, INTERNAL_SERVICE")
-	createCmd.Flags().StringArrayVar(&toolCreateVPCSubnets, "vpc-subnet", nil, "VPC subnet ID (can be specified multiple times, required when --network=VPC)")
-	createCmd.Flags().StringArrayVar(&toolCreateVPCSecurityGroups, "vpc-sg", nil, "Security group ID (can be specified multiple times, required when --network=VPC)")
-	createCmd.Flags().StringArrayVar(&toolCreateTags, "tag", nil, "Tags in key=value format (can be specified multiple times)")
-	createCmd.Flags().StringVar(&toolCreateRoleArn, "role-arn", "", "Role ARN for COS access (required when --mount is specified)")
-	createCmd.Flags().StringArrayVar(&toolCreateMounts, "mount", nil, "Storage mount config (can be specified multiple times)\n"+client.FormatStorageMountHelp())
-	createCmd.Flags().BoolVar(&toolTime, "time", false, "Print elapsed time")
+	createCmd.Flags().StringVar(&toolCreateNetworkMode, "network", "", "Network mode: PUBLIC, VPC, SANDBOX, INTERNAL_SERVICE")
+	createCmd.Flags().StringArrayVar(&toolCreateVPCSubnets, "vpc-subnet", nil, "VPC subnet ID")
+	createCmd.Flags().StringArrayVar(&toolCreateVPCSecurityGroups, "vpc-sg", nil, "Security group ID")
+	createCmd.Flags().StringArrayVar(&toolCreateTags, "tag", nil, "Tags (key=value)")
+	createCmd.Flags().StringVar(&toolCreateRoleArn, "role-arn", "", "Role ARN for COS access")
+	createCmd.Flags().StringArrayVar(&toolCreateMounts, "mount", nil, "Storage mount config\n"+client.FormatStorageMountHelp())
+	createCmd.Flags().StringVar(&toolCreateClientToken, "client-token", "", "Client token for duplicate creation protection")
+	createCmd.Flags().StringVar(&toolCreateRequest, "request", "", "Complete request body as JSON, @file, or - for stdin")
 	cmd.AddCommand(createCmd)
 
-	// tool list
-	listCmd := &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "List available tools",
-		Long:    toolListCmd.Long,
-		RunE:    toolListCmd.RunE,
-	}
-	listCmd.Flags().StringArrayVar(&toolListIDs, "id", nil, "Specific tool IDs to query (can be specified multiple times)")
-	listCmd.Flags().StringVar(&toolListStatus, "status", "", "Filter by status: CREATING, ACTIVE, DELETING, FAILED")
-	listCmd.Flags().StringVar(&toolListType, "type", "", "Filter by type: code-interpreter, browser, mobile, osworld, custom, swebench")
-	listCmd.Flags().StringVar(&toolListCreatedSince, "created-since", "", "Filter by relative time, e.g., 5m, 1h, 24h")
-	listCmd.Flags().StringVar(&toolListCreatedSinceTime, "created-since-time", "", "Filter by absolute time (RFC3339)")
-	listCmd.Flags().StringArrayVar(&toolListTags, "tag", nil, "Filter by tag (key=value, can be specified multiple times)")
+	listCmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List available tools"}
+	listCmd.RunE = Wrap("tool.list", toolListFn)
+	listCmd.Flags().StringArrayVar(&toolListIDs, "id", nil, "Specific tool IDs")
+	listCmd.Flags().StringVar(&toolListStatus, "status", "", "Filter by status")
+	listCmd.Flags().StringVar(&toolListType, "type", "", "Filter by type")
+	listCmd.Flags().StringVar(&toolListCreatedSince, "created-since", "", "Relative time filter")
+	listCmd.Flags().StringVar(&toolListCreatedSinceTime, "created-since-time", "", "Absolute time filter (RFC3339)")
+	listCmd.Flags().StringArrayVar(&toolListTags, "tag", nil, "Filter by tag (key=value)")
 	listCmd.Flags().IntVar(&toolListOffset, "offset", 0, "Pagination offset")
-	listCmd.Flags().IntVar(&toolListLimit, "limit", 20, "Pagination limit (max 100)")
-	listCmd.Flags().BoolVar(&toolListShort, "short", false, "Show only ID and NAME")
-	listCmd.Flags().BoolVar(&toolListNoHeader, "no-header", false, "Hide table header and footer")
-	listCmd.Flags().BoolVar(&toolTime, "time", false, "Print elapsed time")
+	listCmd.Flags().IntVar(&toolListLimit, "limit", 20, "Pagination limit")
 	cmd.AddCommand(listCmd)
 
-	// tool get
-	getCmd := &cobra.Command{
-		Use:   "get <tool-id>",
-		Short: "Get tool details",
-		Long:  `Get detailed information about a specific tool.`,
-		Args:  cobra.ExactArgs(1),
-		RunE:  toolGetCmd.RunE,
-	}
-	getCmd.Flags().BoolVar(&toolTime, "time", false, "Print elapsed time")
+	getCmd := &cobra.Command{Use: "get <tool-id>", Short: "Get tool details", Args: cobra.ExactArgs(1)}
+	getCmd.RunE = Wrap("tool.get", toolGetFn)
 	cmd.AddCommand(getCmd)
 
-	// tool update
-	updateCmd := &cobra.Command{
-		Use:   "update <tool-id>",
-		Short: "Update a sandbox tool",
-		Long: `Update a sandbox tool's description, network mode, or tags.
-
-At least one of --description, --network, --tag, or --clear-tags must be specified.
-
-Network modes:
-  - PUBLIC: Public network access
-  - SANDBOX: No network / isolated environment
-  - INTERNAL_SERVICE: Internal Tencent Cloud services only
-
-Note: VPC mode cannot be changed after creation. Tools created with VPC mode
-cannot switch to other modes, and non-VPC tools cannot switch to VPC mode.
-
-Examples:
-  ags tool update sdt-xxx -d "Updated description"
-  ags tool update sdt-xxx --network SANDBOX
-  ags tool update sdt-xxx --tag env=staging --tag team=ai
-  ags tool update sdt-xxx --clear-tags
-  ags tool update sdt-xxx -d "New desc" --network PUBLIC --tag env=prod`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			start := time.Now()
-			toolID := args[0]
-
-			// Check if at least one update option is provided
-			descriptionSet := cmd.Flags().Changed("description")
-			networkSet := cmd.Flags().Changed("network")
-			tagsSet := cmd.Flags().Changed("tag")
-
-			if !descriptionSet && !networkSet && !tagsSet && !toolUpdateClearTags {
-				return fmt.Errorf("at least one of --description, --network, --tag, or --clear-tags must be specified")
-			}
-
-			// Validate network mode if specified (VPC is not allowed for update)
-			if networkSet {
-				validModes := map[string]bool{"PUBLIC": true, "SANDBOX": true, "INTERNAL_SERVICE": true}
-				if !validModes[toolUpdateNetworkMode] {
-					if toolUpdateNetworkMode == "VPC" {
-						return fmt.Errorf("cannot change network mode to VPC (VPC can only be set at creation time)")
-					}
-					return fmt.Errorf("invalid network mode: %s (must be PUBLIC, SANDBOX, or INTERNAL_SERVICE)", toolUpdateNetworkMode)
-				}
-			}
-
-			// Build update options
-			opts := &client.UpdateToolOptions{
-				ToolID: toolID,
-			}
-
-			if descriptionSet {
-				opts.Description = &toolUpdateDescription
-			}
-
-			if networkSet {
-				opts.NetworkMode = &toolUpdateNetworkMode
-			}
-
-			// Handle tags
-			if toolUpdateClearTags {
-				// Clear all tags by setting empty map
-				opts.Tags = make(map[string]string)
-			} else if tagsSet {
-				// Parse and set new tags
-				tags := make(map[string]string)
-				for _, tag := range toolUpdateTags {
-					parts := strings.SplitN(tag, "=", 2)
-					if len(parts) != 2 {
-						return fmt.Errorf("invalid tag format: %s (expected key=value)", tag)
-					}
-					tags[parts[0]] = parts[1]
-				}
-				opts.Tags = tags
-			}
-
-			apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-			if err != nil {
-				return fmt.Errorf("failed to create API client: %w", err)
-			}
-
-			if err := apiClient.UpdateTool(ctx, opts); err != nil {
-				return fmt.Errorf("failed to update tool: %w", err)
-			}
-
-			totalDuration := time.Since(start)
-			var timing *output.Timing
-			if toolTime {
-				timing = output.NewTiming(totalDuration)
-			}
-
-			f := output.NewFormatter()
-
-			if f.IsJSON() {
-				data := map[string]any{
-					"status":  "success",
-					"message": fmt.Sprintf("Tool updated: %s", toolID),
-					"id":      toolID,
-				}
-				if timing != nil {
-					data["timing"] = timing
-				}
-				return f.PrintJSON(data)
-			}
-
-			output.PrintSuccess(fmt.Sprintf("Tool updated: %s", toolID))
-
-			if toolTime {
-				f.PrintTiming(timing)
-			}
-
-			return nil
-		},
-	}
+	updateCmd := &cobra.Command{Use: "update <tool-id>", Short: "Update a sandbox tool", Args: cobra.ExactArgs(1)}
+	updateCmd.RunE = Wrap("tool.update", toolUpdateFn)
 	updateCmd.Flags().StringVarP(&toolUpdateDescription, "description", "d", "", "Tool description")
-	updateCmd.Flags().StringVar(&toolUpdateNetworkMode, "network", "", "Network mode: PUBLIC, SANDBOX, INTERNAL_SERVICE (VPC cannot be changed)")
-	updateCmd.Flags().StringArrayVar(&toolUpdateTags, "tag", nil, "Tags in key=value format (can be specified multiple times)")
+	updateCmd.Flags().StringVar(&toolUpdateNetworkMode, "network", "", "Network mode")
+	updateCmd.Flags().StringArrayVar(&toolUpdateTags, "tag", nil, "Tags (key=value)")
 	updateCmd.Flags().BoolVar(&toolUpdateClearTags, "clear-tags", false, "Clear all tags")
-	updateCmd.Flags().BoolVar(&toolTime, "time", false, "Print elapsed time")
+	updateCmd.Flags().StringVar(&toolUpdateRequest, "request", "", "Complete request body as JSON, @file, or - for stdin")
 	cmd.AddCommand(updateCmd)
 
-	// tool delete
-	deleteCmd := &cobra.Command{
-		Use:     "delete <tool-id> [tool-id...]",
-		Aliases: []string{"rm", "del"},
-		Short:   "Delete sandbox tools",
-		Long:    `Delete one or more sandbox tools by ID. This operation executes immediately and does not prompt for confirmation.`,
-		Args:    cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-			start := time.Now()
-
-			apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-			if err != nil {
-				return fmt.Errorf("failed to create API client: %w", err)
-			}
-
-			f := output.NewFormatter()
-			var failed []string
-
-			for _, toolID := range args {
-				if err := apiClient.DeleteTool(ctx, toolID); err != nil {
-					output.PrintWarning(fmt.Sprintf("Failed to delete tool %s: %v", toolID, err))
-					failed = append(failed, toolID)
-				} else {
-					if !f.IsJSON() {
-						output.PrintSuccess(fmt.Sprintf("Tool deleted: %s", toolID))
-					}
-				}
-			}
-
-			totalDuration := time.Since(start)
-			var timing *output.Timing
-			if toolTime {
-				timing = output.NewTiming(totalDuration)
-			}
-
-			if f.IsJSON() {
-				data := map[string]any{
-					"status":  "success",
-					"deleted": len(args) - len(failed),
-					"failed":  len(failed),
-				}
-				if len(failed) > 0 {
-					data["status"] = "partial"
-					data["failed_ids"] = failed
-				}
-				if timing != nil {
-					data["timing"] = timing
-				}
-				return f.PrintJSON(data)
-			}
-
-			if toolTime {
-				f.PrintTiming(timing)
-			}
-
-			if len(failed) > 0 {
-				return fmt.Errorf("failed to delete %d tool(s)", len(failed))
-			}
-			return nil
-		},
-	}
-	deleteCmd.Flags().BoolVar(&toolTime, "time", false, "Print elapsed time")
+	deleteCmd := &cobra.Command{Use: "delete <tool-id> [tool-id...]", Aliases: []string{"rm", "del"}, Short: "Delete sandbox tools", Args: cobra.MinimumNArgs(1)}
+	deleteCmd.RunE = Wrap("tool.delete", toolDeleteFn)
 	cmd.AddCommand(deleteCmd)
 
 	parent.AddCommand(cmd)

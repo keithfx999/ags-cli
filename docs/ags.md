@@ -1,106 +1,51 @@
-# ags
+## ags
 
-AGS CLI - Command-line tool for Tencent Cloud Agent Sandbox
+AGS CLI - Agent Sandbox Command Line Interface
 
-## Synopsis
+### Synopsis
+
+AGS CLI is a command line tool for managing Agent Sandbox tools and instances.
+
+Examples:
+  id=$(ags instance create -t code-interpreter-v1 -o json --jq '.Data.Id')
+  ags instance code run "$id" -c "print('Hello, World!')"
+  ags instance delete "$id"
+
+  ags status
+  ags doctor
 
 ```
-ags [command] [flags]
-ags [flags]              # Enter REPL mode
+ags [flags]
 ```
 
-## Description
+### Options
 
-AGS CLI provides a convenient way to manage sandbox tools, instances, and execute code in isolated environments. It supports both E2B API and Tencent Cloud API backends.
-
-When invoked without arguments, AGS enters interactive REPL mode with auto-completion support.
-
-## Commands
-
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| [tool](ags-tool.md) | `t` | Tool (sandbox template) management |
-| [instance](ags-instance.md) | `i` | Sandbox instance management |
-| [run](ags-run.md) | `r` | Execute code in sandbox |
-| [exec](ags-exec.md) | `x` | Execute shell commands in sandbox |
-| [file](ags-file.md) | `f`, `fs` | File operations in sandbox |
-| [proxy](ags-proxy.md) | - | Forward a sandbox port to localhost |
-| [mobile](ags-mobile.md) | `m` | Mobile sandbox ADB access |
-| [apikey](ags-apikey.md) | `ak`, `key` | API key management (cloud backend only) |
-| `completion` | - | Generate shell completion scripts |
-| `help` | - | Help about any command |
-
-## Global Options
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--backend` | string | `e2b` | API backend: `e2b` or `cloud` |
-| `--config` | string | `~/.ags/config.toml` | Config file path |
-| `-o, --output` | string | `text` | Output format: `text` or `json` |
-| `--region` | string | `ap-guangzhou` | Region for API access |
-| `--domain` | string | `tencentags.com` | Base domain |
-| `--internal` | bool | `false` | Use internal endpoints (for Tencent Cloud internal network) |
-| `--e2b-api-key` | string | - | E2B API key |
-| `--cloud-secret-id` | string | - | Tencent Cloud SecretID |
-| `--cloud-secret-key` | string | - | Tencent Cloud SecretKey |
-
-### Deprecated Flags
-
-| Flag | Replacement |
-|------|-------------|
-| `--e2b-domain` | `--domain` |
-| `--e2b-region` | `--region` |
-| `--cloud-region` | `--region` |
-| `--cloud-internal` | `--internal` |
-
-## Configuration
-
-Create `~/.ags/config.toml`:
-
-```toml
-backend = "e2b"
-output = "text"
-region = "ap-guangzhou"          # Unified region for all backends
-domain = "tencentags.com"        # Unified base domain (optional)
-internal = false                 # When true, "internal." is prepended to domain automatically
-
-[e2b]
-api_key = "your-e2b-api-key"
-
-[cloud]
-secret_id = "your-secret-id"
-secret_key = "your-secret-key"
+```
+      --api-key string      API key
+      --backend string      API backend: e2b or cloud
+      --config string       config file (default is $HOME/.ags/config.toml)
+      --domain string       Base domain (default: tencentags.com)
+  -h, --help                help for ags
+      --internal            Use internal endpoints
+      --jq string           jq expression (only with -o json)
+      --no-color            Disable ANSI color output
+      --non-interactive     Disable interactive behaviors
+  -o, --output string       output format: text, json, or ndjson
+      --region string       Region for API access (default: ap-guangzhou)
+      --secret-id string    Tencent Cloud SecretID
+      --secret-key string   Tencent Cloud SecretKey
+  -v, --version             Print version information
 ```
 
-For full configuration reference including environment variables, internal network setup, priority rules, and deprecated field migration, see [ags-config](ags-config.md).
+### SEE ALSO
 
-## Examples
+* [ags apikey](ags_apikey.md)	 - Manage API keys
+* [ags capabilities](ags_capabilities.md)	 - Show available commands for current environment
+* [ags completion](ags_completion.md)	 - Generate shell completion script
+* [ags doctor](ags_doctor.md)	 - Diagnose CLI configuration issues
+* [ags instance](ags_instance.md)	 - Manage sandbox instances
+* [ags schema](ags_schema.md)	 - Show command schema for machine consumption
+* [ags status](ags_status.md)	 - Show current CLI configuration status
+* [ags tool](ags_tool.md)	 - Manage sandbox tools
 
-```bash
-# Enter REPL mode
-ags
-
-# List cloud-managed tools
-ags --backend cloud tool list
-
-# Execute Python code
-ags run -c "print('Hello')"
-
-# Execute shell command
-ags exec "ls -la"
-
-# List instances on the default backend
-ags instance list
-```
-
-## See Also
-
-- [ags-config](ags-config.md) - Configuration reference
-- [ags-tool](ags-tool.md) - Tool management
-- [ags-instance](ags-instance.md) - Instance management
-- [ags-run](ags-run.md) - Code execution
-- [ags-exec](ags-exec.md) - Shell command execution
-- [ags-file](ags-file.md) - File operations
-- [ags-proxy](ags-proxy.md) - Port forwarding
-- [ags-mobile](ags-mobile.md) - Mobile sandbox ADB access
-- [ags-apikey](ags-apikey.md) - API key management
+###### Auto generated by spf13/cobra on 14-May-2026

@@ -21,8 +21,8 @@ type CloudInstanceClient struct {
 }
 
 // NewCloudInstanceClient creates a new Cloud Instance client
-func NewCloudInstanceClient(cfg *config.Config, cloudCfg *config.CloudConfig) (*CloudInstanceClient, error) {
-	credential := common.NewCredential(cloudCfg.SecretID, cloudCfg.SecretKey)
+func NewCloudInstanceClient(cfg *config.Config, secretID, secretKey string) (*CloudInstanceClient, error) {
+	credential := common.NewCredential(secretID, secretKey)
 	cpf := profile.NewClientProfile()
 	cpf.HttpProfile.Endpoint = cfg.ControlPlaneEndpoint()
 
@@ -74,9 +74,13 @@ func (c *CloudInstanceClient) CreateInstance(ctx context.Context, opts *CreateIn
 		request.AuthMode = &authMode
 	}
 
+	if opts.ClientToken != "" {
+		request.ClientToken = &opts.ClientToken
+	}
+
 	response, err := c.client.StartSandboxInstanceWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create instance: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	inst := response.Response.Instance
@@ -216,7 +220,7 @@ func (c *CloudInstanceClient) ListInstances(ctx context.Context, opts *ListInsta
 
 	response, err := c.client.DescribeSandboxInstanceListWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list instances: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	result := &ListInstancesResult{
@@ -268,7 +272,7 @@ func (c *CloudInstanceClient) GetInstance(ctx context.Context, id string) (*Inst
 		InstanceIDs: []string{id},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	if len(result.Instances) == 0 {
@@ -286,7 +290,7 @@ func (c *CloudInstanceClient) DeleteInstance(ctx context.Context, id string) err
 
 	_, err := c.client.StopSandboxInstanceWithContext(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to delete instance: %w", err)
+		return ClassifyCloudError(err)
 	}
 	return nil
 }
@@ -298,7 +302,7 @@ func (c *CloudInstanceClient) AcquireToken(ctx context.Context, instanceID strin
 		InstanceId: &instanceID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to acquire token: %w", err)
+		return "", ClassifyCloudError(err)
 	}
 	if tokenResp.Response == nil || tokenResp.Response.Token == nil {
 		return "", fmt.Errorf("no token returned from API")

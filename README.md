@@ -1,245 +1,205 @@
 # AGS CLI
 
-[中文文档](README-zh.md)
-
-AGS CLI is a command-line tool for managing Tencent Cloud Agent Sandbox (AGS). It provides a convenient way to manage sandbox tools, instances, and execute code in isolated environments.
-
-## Features
-
-- **Tool Management**: Create, list, and delete sandbox tools (templates)
-- **Instance Management**: Start/stop sandbox instances with flexible lifecycle control
-- **Code Execution**: Execute code in multiple languages (Python, JavaScript, TypeScript, R, Java, Bash)
-- **Shell Command Execution**: Run shell commands in sandbox with streaming support
-- **File Operations**: Upload, download, and manage files in sandbox
-- **Dual Backend Support**: Support both E2B API and Tencent Cloud API
-- **Port Forwarding**: Forward sandbox ports to localhost, with full HTTP and WebSocket support
-- **Mobile Sandbox ADB Access**: Secure ADB access to remote Android sandboxes via WebSocket tunnels
-- **Interactive REPL**: Built-in interactive mode with auto-completion
-- **Streaming Output**: Real-time output streaming for long-running code
+AGS CLI is a command-line tool for managing Tencent Cloud Agent Sandbox (AGS). It provides unified management of sandbox instances, code execution, file operations, and tool templates across both Cloud and E2B backends.
 
 ## Installation
 
-### Using go install
-
-```bash
-go install github.com/TencentCloudAgentRuntime/ags-cli@latest
-```
-
-**Note**: The installed command will be `ags-cli`. If you prefer to use `ags` as the command name, you can create an alias:
-
-```bash
-# Add to your shell configuration file (~/.zshrc, ~/.bashrc, etc.)
-alias ags='ags-cli'
-
-# Reload your shell configuration
-source ~/.zshrc  # or source ~/.bashrc
-```
-
-### From Source
+### From source
 
 ```bash
 git clone https://github.com/TencentCloudAgentRuntime/ags-cli.git
 cd ags-cli
 make build
+sudo cp ags /usr/local/bin/
 ```
 
-### Cross-platform Build
+### Using go install
 
 ```bash
-make build-all  # Build for Linux, macOS, Windows
+go install github.com/TencentCloudAgentRuntime/ags-cli/cmd/ags@latest
 ```
 
-## Configuration
+## Configure Cloud Credentials
 
-Create `~/.ags/config.toml`:
+The default backend is `cloud`. Set your Tencent Cloud credentials:
+
+```bash
+export TENCENTCLOUD_SECRET_ID="your-secret-id"
+export TENCENTCLOUD_SECRET_KEY="your-secret-key"
+```
+
+Or create `~/.ags/config.toml`:
 
 ```toml
-backend = "e2b"
-output = "text"
+backend = "cloud"
 
-[e2b]
-api_key = "your-e2b-api-key"
-domain = "tencentags.com"
-region = "ap-guangzhou"
-
-[cloud]
+[auth]
 secret_id = "your-secret-id"
 secret_key = "your-secret-key"
-region = "ap-guangzhou"
 ```
-
-Or use environment variables:
-
-```bash
-export AGS_E2B_API_KEY="your-api-key"
-# E2B_API_KEY is also recognized for compatibility with E2B tooling.
-# export E2B_API_KEY="your-api-key"
-export AGS_CLOUD_SECRET_ID="your-secret-id"
-export AGS_CLOUD_SECRET_KEY="your-secret-key"
-```
-
-### Backend Differences
-
-AGS CLI supports two backends with different capabilities:
-
-| Feature | E2B Backend | Cloud Backend |
-|---------|-------------|---------------|
-| Authentication | API Key only | SecretID + SecretKey |
-| Tool Management | ✗ | ✓ |
-| Instance Operations | ✓ | ✓ |
-| Code Execution | ✓ | ✓ |
-| File Operations | ✓ | ✓ |
-| API Key Management | ✗ | ✓ |
-
-The **E2B configuration** provides compatibility with the E2B API. With E2B backend, you only need an API key for sandbox instance operations (create, list, delete instances, execute code, file operations), but you cannot manage sandbox tools.
-
-To manage sandbox tools (list/get/create/update/delete) and API keys, you must use the **Cloud backend** with Tencent Cloud SecretID and SecretKey. You can obtain your AKSK from: https://console.cloud.tencent.com/cam/capi
-
-### Architecture: Control Plane vs Data Plane
-
-AGS CLI separates operations into two layers:
-
-- **Control Plane**: Instance lifecycle management (create/delete/list), tool management, API key management
-  - E2B Backend: Uses API Key + E2B REST API
-  - Cloud Backend: Uses AKSK + Tencent Cloud API
-  
-- **Data Plane**: Code execution, shell commands, file operations
-  - Both backends use the same E2B-compatible data plane gateway with Access Token
-
-The `backend` configuration controls instance lifecycle operations. Data plane operations (code, shell, files) use the E2B-compatible data plane protocol after an instance is created or selected.
-
-Access tokens are automatically cached in `~/.ags/tokens.json` during instance creation and used for subsequent data plane operations
 
 ## Quick Start
 
 ```bash
-# Enter REPL mode
-ags
-
-# Optional: list cloud-managed tools (requires cloud backend credentials)
-ags --backend cloud tool list
-
-# Create an instance
-ags instance create -t code-interpreter-v1
-
-# Execute Python code
-ags run -c "print('Hello, World!')"
-
-# Execute with streaming output
-ags run -s -c "import time; [print(i) or time.sleep(1) for i in range(5)]"
-
-# Execute shell command
-ags exec "ls -la"
-
-# Upload/download files
-ags file upload local.txt /home/user/remote.txt
-ags file download /home/user/file.txt ./local.txt
+# Create an instance, run code, then clean up
+id=$(ags instance create -t code-interpreter-v1 -o json --jq '.Data.Id')
+ags instance code run "$id" -c "print('Hello, World!')"
+ags instance delete "$id"
 ```
 
-## Port Forwarding
+## E2B Backend
 
-`ags proxy` forwards a remote sandbox port to localhost, similar to `kubectl port-forward`. Both HTTP and WebSocket protocols are fully supported.
+To use the E2B backend instead of Cloud:
 
 ```bash
-# Forward sandbox port 8080 to localhost:8080
-ags proxy sandbox-xxx 8080
+export AGS_API_KEY="your-api-key"
 
-# Forward sandbox port 8080 to a different local port
-ags proxy sandbox-xxx 3000:8080
+id=$(ags --backend e2b instance create -t code-interpreter-v1 -o json --jq '.Data.Id')
+ags --backend e2b instance code run "$id" -c "print('Hello, World!')"
+ags --backend e2b instance delete "$id"
 ```
 
-> **Note**: Before using this command, open the target port in the AGS sandbox console: navigate to your sandbox instance → **Network** → **Open Port**, and add the remote port number to the allowlist. Requests to ports that have not been configured will be rejected by the gateway.
+Or in config:
 
-## Mobile Sandbox (ADB Access)
+```toml
+backend = "e2b"
 
-For **mobile** type sandboxes (Android), AGS CLI provides secure ADB access via WebSocket tunnels. This allows you to use standard `adb` commands to interact with remote Android sandbox instances.
-
-### Prerequisites
-
-- A mobile type sandbox tool (e.g., Android 13 sandbox)
-- Local `adb` installed ([Android SDK Platform Tools](https://developer.android.com/tools/releases/platform-tools))
-
-### Workflow
-
-```bash
-# Step 1: Create a mobile sandbox instance
-ags instance create -t <mobile-tool-name>
-# ✓ Instance created: 8d7a3c17ef84******************************e73c58
-
-# Step 2: Connect to the mobile sandbox via ADB tunnel
-ags mobile connect 8d7a3c17ef84******************************e73c58
-# connected to 127.0.0.1:61876
-# ℹ connected to 8d7a3c17ef84******************************e73c58 (127.0.0.1:61876)
-# ℹ tunnel log: /Users/<user>/.ags/tunnel-8d7a3c17ef84******************************e73c58.log
-
-# Step 3: List active mobile connections and verify ADB device
-ags mobile list
-# SANDBOX                                   ADB ADDRESS        STATUS
-# 8d7a3c17ef84******************************e73c58  127.0.0.1:61876    connected
-adb devices
-# List of devices attached
-# 127.0.0.1:61876    device
-
-# Step 4: Now you can use any native adb commands (shell, install, push, pull, screencap, etc.)
-adb -s 127.0.0.1:61876 shell getprop ro.build.display.id
-
-# Step 5: Disconnect when done
-ags mobile disconnect 8d7a3c17ef84******************************e73c58
-# ℹ disconnected from 8d7a3c17ef84******************************e73c58
-
-# Or disconnect all active connections at once
-ags mobile disconnect --all
+[auth]
+api_key = "your-api-key"
 ```
 
-> **Note**: The `ags mobile` commands are only applicable to **mobile** type sandbox instances (e.g., Android sandboxes). They do not apply to regular code execution sandboxes.
+## Command Overview
 
-## Command Reference
+```
+ags                              Print help
+ags version                      Version info
+ags status                       Current configuration status
+ags capabilities                 Available commands for current backend
+ags schema [command]             Command schema (machine-readable)
+ags doctor                       Diagnose configuration issues
 
-For detailed documentation on each command, see:
+ags instance create              Create a new instance
+ags instance list                List instances
+ags instance get <id>            Get instance details
+ags instance delete <id>         Delete instance(s)
 
-| Command | Aliases | Description | Documentation |
-|---------|---------|-------------|---------------|
-| `tool` | `t` | Tool management | [ags-tool](docs/ags-tool.md) |
-| `instance` | `i` | Instance management | [ags-instance](docs/ags-instance.md) |
-| `run` | `r` | Code execution | [ags-run](docs/ags-run.md) |
-| `exec` | `x` | Shell command execution | [ags-exec](docs/ags-exec.md) |
-| `file` | `f`, `fs` | File operations | [ags-file](docs/ags-file.md) |
-| `proxy` | - | Port forwarding | [ags-proxy](docs/ags-proxy.md) |
-| `mobile` | `m` | Mobile sandbox ADB access | [ags-mobile](docs/ags-mobile.md) |
-| `apikey` | `ak`, `key` | API key management | [ags-apikey](docs/ags-apikey.md) |
+ags instance code run <id>       Execute code in instance
+ags instance exec <id> -- CMD    Execute shell command in instance
+ags instance file upload <id>    Upload file to instance
+ags instance file download <id>  Download file from instance
+ags instance login <id>          PTY terminal session
 
-See [ags](docs/ags.md) for global options and configuration details.
+ags instance browser vnc <id>    Show VNC URL for browser instance
+ags instance proxy <id> PORT     Forward instance port to localhost
+ags instance mobile connect <id> Connect ADB to mobile instance
 
-### Man Pages
+ags tool list                    List sandbox tools (cloud only)
+ags tool create                  Create a tool
+ags tool get <id>                Get tool details
+ags tool update <id>             Update a tool
+ags tool delete <id>             Delete a tool
 
-Generate and install man pages for offline documentation:
+ags apikey create                Create API key (cloud only)
+ags apikey list                  List API keys
+ags apikey delete <id>           Delete API key
 
-```bash
-# Generate man pages
-make man
-
-# Install to system (requires sudo)
-make install-man
-
-# View documentation
-man ags
-man ags-tool
-man ags-instance
+ags completion bash|zsh|fish     Shell completion
+ags docs markdown|man            Generate documentation
 ```
 
-## Shell Completion
+## Machine-Readable Output
+
+All commands that support `-o json` output a unified envelope:
+
+```json
+{
+  "SchemaVersion": "ags.v1",
+  "Command": "instance.create",
+  "Status": "succeeded",
+  "Data": { "Id": "sandbox-xxx", "ToolName": "code-interpreter-v1", ... },
+  "Failure": null,
+  "Warnings": [],
+  "Meta": { "Backend": "cloud", "DurationMs": 123 }
+}
+```
+
+Use `--jq` to extract fields without installing jq:
 
 ```bash
-# Bash
-ags completion bash > /etc/bash_completion.d/ags
+# Get instance ID after creation
+id=$(ags instance create -t code-interpreter-v1 -o json --jq '.Data.Id')
 
-# Zsh
-ags completion zsh > "${fpath[1]}/_ags"
+# List all instance IDs
+ags instance list -o json --jq '.Data.Items[].Id'
 
-# Fish
-ags completion fish > ~/.config/fish/completions/ags.fish
+# Check current backend
+ags status -o json --jq '.Data.Backend'
+```
+
+### Streaming (NDJSON)
+
+`instance code run` and `instance exec` support `--stream -o ndjson` for machine-readable streaming:
+
+```bash
+ags instance exec "$id" --stream -o ndjson -- tail -f /var/log/app.log
+```
+
+Each line is a JSON event with `SchemaVersion: "ags.events.v1"`.
+
+## Exit Codes
+
+| Exit | Kind | Description |
+|------|------|-------------|
+| 0 | success | OK |
+| 1 | generic_error | Unclassified error |
+| 2 | usage | Invalid args, flags, or input |
+| 3 | not_found | Instance, tool, or file not found |
+| 4 | auth_or_permission | Missing credentials or access denied |
+| 5 | conflict | Resource conflict (e.g. duplicate client-token) |
+| 6 | rate_limit | Rate limited |
+| 7 | timeout | Timeout |
+| 8 | network | Network, DNS, or TLS error |
+| 9 | backend_unsupported | Command not supported on current backend |
+| 10 | partial_success | Batch operation partially failed |
+| 11 | remote_execution_failed | Remote code execution error |
+
+`instance exec` transparently passes through the remote command's exit code.
+
+## Global Flags
+
+```
+--config          Config file path (default: ~/.ags/config.toml)
+--backend         API backend: cloud or e2b
+-o, --output      Output format: text, json, or ndjson
+--jq              jq expression (only with -o json)
+--api-key         API key
+--secret-id       Tencent Cloud SecretID
+--secret-key      Tencent Cloud SecretKey
+--region          Region (default: ap-guangzhou)
+--domain          Base domain (default: tencentags.com)
+--internal        Use internal endpoints
+--non-interactive Disable interactive behaviors
+--no-color        Disable ANSI color
+```
+
+Environment variables: `AGS_API_KEY`, `E2B_API_KEY`, `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `NO_COLOR`, `AGS_NON_INTERACTIVE`.
+
+## Troubleshooting
+
+```bash
+# Check configuration
+ags status
+
+# Diagnose issues
+ags doctor
+
+# See what commands are available for your backend
+ags capabilities
+
+# Get command details
+ags schema instance.create -o json
 ```
 
 ## License
 
-This project is open-sourced under the Apache License 2.0. See [LICENSE](LICENSE-AGS%20CLI.txt) file for details.
+See [LICENSE](LICENSE-AGS%20CLI.txt).

@@ -117,12 +117,14 @@ type Tool struct {
 	Name          string            `json:"name"`
 	Description   string            `json:"description"`
 	Type          string            `json:"type"`                   // code-interpreter, browser, mobile, osworld, custom, swebench
+	Status        string            `json:"status,omitempty"`       // Tool status
 	NetworkMode   string            `json:"network_mode,omitempty"` // PUBLIC, VPC, SANDBOX, INTERNAL_SERVICE
 	VPCConfig     *VPCConfig        `json:"vpc_config,omitempty"`   // VPC configuration (only when NetworkMode=VPC)
 	Tags          map[string]string `json:"tags,omitempty"`
 	RoleArn       string            `json:"role_arn,omitempty"`       // Role ARN for storage access
 	StorageMounts []StorageMount    `json:"storage_mounts,omitempty"` // Storage mount configurations
 	CreatedAt     string            `json:"created_at,omitempty"`     // Creation time (ISO8601)
+	UpdatedAt     string            `json:"updated_at,omitempty"`     // Last update time (ISO8601)
 }
 
 // CreateToolOptions represents options for creating a tool
@@ -136,6 +138,7 @@ type CreateToolOptions struct {
 	Tags           map[string]string // Tags (optional)
 	RoleArn        string            // Role ARN for COS access (required when StorageMounts is set)
 	StorageMounts  []StorageMount    // Storage mount configurations (optional)
+	ClientToken    string            // Client token for duplicate creation protection (optional)
 }
 
 // UpdateToolOptions represents options for updating a tool
@@ -245,6 +248,7 @@ type CreateInstanceOptions struct {
 	Timeout      int           // timeout in seconds
 	MountOptions []MountOption // Mount options to override tool defaults (optional)
 	AuthMode     string        // Optional DEFAULT / TOKEN / NONE / PUBLIC; empty = backend default
+	ClientToken  string        // Duplicate creation protection key (optional)
 }
 
 // ListInstancesOptions represents options for listing instances

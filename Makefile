@@ -87,7 +87,7 @@ tidy:
 ## man: Generate man pages
 man: build
 	@echo "Generating man pages..."
-	@./$(BINARY_NAME) docs man -o man
+	@./$(BINARY_NAME) docs man --dir man
 	@echo "Done."
 
 ## install-man: Install man pages to system

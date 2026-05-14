@@ -16,8 +16,8 @@ type CloudAPIKeyClient struct {
 }
 
 // NewCloudAPIKeyClient creates a new Cloud API Key client
-func NewCloudAPIKeyClient(cfg *config.Config, cloudCfg *config.CloudConfig) (*CloudAPIKeyClient, error) {
-	credential := common.NewCredential(cloudCfg.SecretID, cloudCfg.SecretKey)
+func NewCloudAPIKeyClient(cfg *config.Config, secretID, secretKey string) (*CloudAPIKeyClient, error) {
+	credential := common.NewCredential(secretID, secretKey)
 
 	cpf := profile.NewClientProfile()
 	cpf.HttpProfile.Endpoint = cfg.ControlPlaneEndpoint()
@@ -39,7 +39,7 @@ func (c *CloudAPIKeyClient) CreateAPIKey(ctx context.Context, name string) (*Cre
 
 	response, err := c.client.CreateAPIKeyWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create API key: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	return &CreateAPIKeyResult{
@@ -55,7 +55,7 @@ func (c *CloudAPIKeyClient) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
 
 	response, err := c.client.DescribeAPIKeyListWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list API keys: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	keys := make([]APIKey, 0, len(response.Response.APIKeySet))
@@ -79,7 +79,7 @@ func (c *CloudAPIKeyClient) DeleteAPIKey(ctx context.Context, keyID string) erro
 
 	_, err := c.client.DeleteAPIKeyWithContext(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to delete API key: %w", err)
+		return ClassifyCloudError(err)
 	}
 
 	return nil

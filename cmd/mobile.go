@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,125 +25,11 @@ import (
 )
 
 var (
-	// mobile tunnel flags
 	daemonFlag bool
 	portFlag   int
 
-	// mobile disconnect flags
 	disconnectAll bool
 )
-
-func init() {
-	addMobileCommand(rootCmd)
-}
-
-// addMobileCommand adds the mobile command group to a parent command.
-func addMobileCommand(parent *cobra.Command) {
-	mobileCmd := &cobra.Command{
-		Use:     "mobile",
-		Aliases: []string{"m"},
-		Short:   "Mobile sandbox ADB commands",
-		Long: `Manage ADB connections to mobile sandboxes.
-
-Provides secure ADB access to remote Android sandboxes through encrypted
-WebSocket tunnels. Supports multiple concurrent connections with automatic
-reconnection on network disruptions.
-
-Examples:
-  # Connect to a mobile sandbox (background tunnel + adb connect)
-  ags mobile connect <sandbox_id>
-
-  # List active connections
-  ags mobile list
-
-  # Execute adb command using sandbox ID
-  ags mobile adb <sandbox_id> shell ls /sdcard
-
-  # Disconnect
-  ags mobile disconnect <sandbox_id>`,
-	}
-
-	// tunnel subcommand — foreground blocking tunnel (internal/debug)
-	tunnelCmd := &cobra.Command{
-		Use:   "tunnel <sandbox_id>",
-		Short: "Run ADB tunnel in foreground (used internally by connect)",
-		Long: `Run an ADB WebSocket tunnel in the foreground.
-
-This is primarily used internally by 'ags mobile connect' to spawn a background
-tunnel process. Can also be used directly for debugging.
-
-The tunnel bridges local TCP connections to the remote adb-websockify server
-via an encrypted WebSocket connection through SandPortal.`,
-		Args: cobra.ExactArgs(1),
-		RunE: runMobileTunnel,
-	}
-	tunnelCmd.Flags().BoolVar(&daemonFlag, "daemon", false, "Run in daemon mode (used by connect)")
-	tunnelCmd.Flags().IntVar(&portFlag, "port", 0, "Local port to listen on (0 = auto-assign)")
-
-	// connect subcommand — background tunnel + adb connect
-	connectCmd := &cobra.Command{
-		Use:   "connect <sandbox_id>",
-		Short: "Connect to mobile sandbox (background tunnel + adb connect)",
-		Long: `Connect to a mobile sandbox by establishing a background ADB tunnel.
-
-This command:
-1. Acquires an access token for the sandbox
-2. Spawns a background tunnel process
-3. Automatically runs 'adb connect' to the local tunnel port
-4. Records the connection in ~/.ags/tunnels.json
-
-After connecting, you can use native adb commands directly:
-  adb -s 127.0.0.1:<port> shell
-  adb -s 127.0.0.1:<port> push local.apk /sdcard/
-
-Or use 'ags mobile adb' with the sandbox ID for convenience.`,
-		Args: cobra.ExactArgs(1),
-		RunE: runMobileConnect,
-	}
-
-	// disconnect subcommand
-	disconnectCmd := &cobra.Command{
-		Use:   "disconnect [sandbox_id]",
-		Short: "Disconnect from mobile sandbox",
-		Long: `Disconnect from a mobile sandbox by terminating the background tunnel
-and running 'adb disconnect'.
-
-Use --all to disconnect from all active sandboxes.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runMobileDisconnect,
-	}
-	disconnectCmd.Flags().BoolVar(&disconnectAll, "all", false, "Disconnect all active connections")
-
-	// list subcommand
-	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List active mobile sandbox connections",
-		Long:  `List all active ADB tunnel connections with their sandbox IDs, local ports, and status.`,
-		Args:  cobra.NoArgs,
-		RunE:  runMobileList,
-	}
-
-	// adb subcommand — execute adb commands by sandbox ID
-	adbCmd := &cobra.Command{
-		Use:   "adb <sandbox_id> [adb_args...]",
-		Short: "Execute adb command on mobile sandbox by ID",
-		Long: `Execute an adb command targeting a specific mobile sandbox using its ID.
-
-This looks up the local port from the active tunnel mapping and passes the
-command through to the native adb binary with the correct -s flag.
-
-Examples:
-  ags mobile adb sandbox-aaa shell ls /sdcard
-  ags mobile adb sandbox-aaa install app.apk
-  ags mobile adb sandbox-aaa logcat`,
-		Args:               cobra.MinimumNArgs(1),
-		RunE:               runMobileAdb,
-		DisableFlagParsing: true, // Pass all args through to adb
-	}
-
-	mobileCmd.AddCommand(tunnelCmd, connectCmd, disconnectCmd, listCmd, adbCmd)
-	parent.AddCommand(mobileCmd)
-}
 
 // readyMessage is the JSON protocol message sent by tunnel --daemon to stdout.
 type readyMessage struct {
@@ -151,7 +39,7 @@ type readyMessage struct {
 	Message string `json:"message,omitempty"`
 }
 
-// runMobileTunnel runs a foreground ADB tunnel.
+// runMobileTunnel runs a foreground ADB tunnel (hidden, used internally by connect).
 func runMobileTunnel(_ *cobra.Command, args []string) error {
 	sandboxID := args[0]
 
@@ -163,7 +51,6 @@ func runMobileTunnel(_ *cobra.Command, args []string) error {
 		return exitError(1, err)
 	}
 
-	// Build the token provider using the same pattern as acquireInstanceToken
 	tokenProvider := func() (string, error) {
 		return acquireInstanceToken(context.Background(), sandboxID)
 	}
@@ -200,7 +87,6 @@ func runMobileTunnel(_ *cobra.Command, args []string) error {
 		return exitError(3, fmt.Errorf("failed to start tunnel: %w", err))
 	}
 
-	// Probe upstream to verify full connectivity before declaring ready
 	if err := tunnel.Probe(); err != nil {
 		tunnel.Stop()
 		if daemonFlag {
@@ -213,7 +99,6 @@ func runMobileTunnel(_ *cobra.Command, args []string) error {
 	_, portStr, _ := strings.Cut(addr, ":")
 
 	if daemonFlag {
-		// Daemon mode: output JSON ready message on stdout
 		msg := readyMessage{
 			Status: "ready",
 			Port:   mustAtoi(portStr),
@@ -224,21 +109,18 @@ func runMobileTunnel(_ *cobra.Command, args []string) error {
 			return exitError(1, fmt.Errorf("failed to write ready message: %w", err))
 		}
 	} else {
-		// Interactive mode: human-readable output
-		fmt.Printf("[Ready] ADB Tunnel established at %s\n", addr)
-		fmt.Println("[Ready] Press Ctrl+C to disconnect.")
+		fmt.Fprintf(ios.Out, "[Ready] ADB Tunnel established at %s\n", addr)
+		fmt.Fprintln(ios.Out, "[Ready] Press Ctrl+C to disconnect.")
 	}
 
-	// Wait for signal with graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
 
 	if !daemonFlag {
-		fmt.Println("\n[INFO] Shutting down ADB tunnel...")
+		fmt.Fprintln(ios.Out, "\n[INFO] Shutting down ADB tunnel...")
 	}
 
-	// Graceful shutdown with 5s timeout
 	shutdownDone := make(chan struct{})
 	go func() {
 		tunnel.Stop()
@@ -249,52 +131,44 @@ func runMobileTunnel(_ *cobra.Command, args []string) error {
 	case <-shutdownDone:
 	case <-time.After(5 * time.Second):
 		if !daemonFlag {
-			fmt.Println("[WARN] Graceful shutdown timed out. Forcing exit.")
+			fmt.Fprintln(ios.Out, "[WARN] Graceful shutdown timed out. Forcing exit.")
 		}
 	}
 
 	return nil
 }
 
-// runMobileConnect spawns a background tunnel process and connects adb.
-func runMobileConnect(_ *cobra.Command, args []string) error {
+func mobileConnectFn(_ *cobra.Command, args []string) (*CmdResult, error) {
 	sandboxID := args[0]
 
 	if err := config.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 
-	// Check adb is available
 	adbPath, err := requireAdb()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Initialize tunnel store
 	store, err := tunnelstore.NewStore()
 	if err != nil {
-		return fmt.Errorf("failed to initialize tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to initialize tunnel store: %w", err)
 	}
 
-	// Clean up any existing tunnel for this sandbox
-	// First, disconnect old adb address if there was a previous tunnel
 	if oldEntry, ok, _ := store.Get(sandboxID); ok {
 		oldAddr := fmt.Sprintf("127.0.0.1:%d", oldEntry.Port)
 		_ = runAdbCommand(adbPath, "disconnect", oldAddr)
 	}
 	if err := store.Cleanup(sandboxID); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to cleanup existing tunnel: %v\n", err)
+		stderr("Warning: failed to cleanup existing tunnel: %v\n", err)
 	}
 
-	// Spawn background tunnel process
 	selfPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Build the command with the same global flags
-	tunnelArgs := []string{"mobile", "tunnel", sandboxID, "--daemon", "--port=0"}
-	// Pass through essential global flags (non-sensitive only via CLI args)
+	tunnelArgs := []string{"instance", "mobile", "tunnel", sandboxID, "--daemon", "--port=0"}
 	if backend != "" {
 		tunnelArgs = append(tunnelArgs, "--backend", backend)
 	}
@@ -309,8 +183,6 @@ func runMobileConnect(_ *cobra.Command, args []string) error {
 	}
 
 	cmd := exec.Command(selfPath, tunnelArgs...)
-	// Redirect tunnel stderr to a log file instead of parent terminal
-	// to avoid background reconnection logs polluting the user's shell.
 	if homeDir, homeErr := os.UserHomeDir(); homeErr == nil {
 		logDir := filepath.Join(homeDir, ".ags")
 		_ = os.MkdirAll(logDir, 0700)
@@ -323,33 +195,28 @@ func runMobileConnect(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Pass sensitive credentials via environment variables instead of CLI args
-	// to avoid exposure in process listing (ps aux).
-	// The child process reads these via viper.BindEnv in config.go.
 	cmd.Env = os.Environ()
-	if e2bAPIKey != "" {
-		cmd.Env = append(cmd.Env, "AGS_E2B_API_KEY="+e2bAPIKey)
+	if apiKey != "" {
+		cmd.Env = append(cmd.Env, "AGS_API_KEY="+apiKey)
 	}
-	if cloudSecretID != "" {
-		cmd.Env = append(cmd.Env, "AGS_CLOUD_SECRET_ID="+cloudSecretID)
+	if secretID != "" {
+		cmd.Env = append(cmd.Env, "TENCENTCLOUD_SECRET_ID="+secretID)
 	}
-	if cloudSecretKey != "" {
-		cmd.Env = append(cmd.Env, "AGS_CLOUD_SECRET_KEY="+cloudSecretKey)
+	if secretKey != "" {
+		cmd.Env = append(cmd.Env, "TENCENTCLOUD_SECRET_KEY="+secretKey)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start tunnel process: %w", err)
+		return nil, fmt.Errorf("failed to start tunnel process: %w", err)
 	}
 
-	// Reap the child process in the background to prevent zombie accumulation
 	go func() { _ = cmd.Wait() }()
 
-	// Read ready message with timeout
 	readyCh := make(chan readyMessage, 1)
 	errCh := make(chan error, 1)
 
@@ -379,215 +246,250 @@ func runMobileConnect(_ *cobra.Command, args []string) error {
 	case ready = <-readyCh:
 		if ready.Status != "ready" || ready.Port == 0 {
 			_ = cmd.Process.Kill()
-			return fmt.Errorf("tunnel reported error: %s", ready.Message)
+			return nil, fmt.Errorf("tunnel reported error: %s", ready.Message)
 		}
 	case err := <-errCh:
 		_ = cmd.Process.Kill()
-		return err
+		return nil, err
 	case <-timer.C:
 		_ = cmd.Process.Kill()
-		return fmt.Errorf("tunnel did not become ready within 30s")
+		return nil, fmt.Errorf("tunnel did not become ready within 30s")
 	}
 
-	// Save to tunnel store (include exe path for PID reuse protection)
 	if err := store.Save(sandboxID, tunnelstore.TunnelEntry{
 		PID:       ready.PID,
 		Port:      ready.Port,
 		CreatedAt: time.Now(),
 		ExePath:   selfPath,
 	}); err != nil {
-		// Non-fatal: tunnel is running, just can't track it
-		fmt.Fprintf(os.Stderr, "Warning: failed to save tunnel mapping: %v\n", err)
+		stderr("Warning: failed to save tunnel mapping: %v\n", err)
 	}
 
-	// Run adb connect with retries
 	adbAddr := fmt.Sprintf("127.0.0.1:%d", ready.Port)
-	if err := adbConnectWithRetry(adbPath, adbAddr, 3); err != nil {
-		output.PrintInfo(fmt.Sprintf("tunnel ready for %s at %s (adb connect failed: %v; use 'adb connect %s' manually)", sandboxID, adbAddr, err, adbAddr))
-	} else {
-		output.PrintInfo(fmt.Sprintf("connected to %s (%s)", sandboxID, adbAddr))
-	}
+	adbConnectErr := adbConnectWithRetry(adbPath, adbAddr, 3)
+
+	var logPath string
 	if homeDir, homeErr := os.UserHomeDir(); homeErr == nil {
-		logPath := filepath.Join(homeDir, ".ags", fmt.Sprintf("tunnel-%s.log", sandboxID))
-		output.PrintInfo(fmt.Sprintf("tunnel log: %s", logPath))
+		logPath = filepath.Join(homeDir, ".ags", fmt.Sprintf("tunnel-%s.log", sandboxID))
 	}
-	return nil
+
+	data := map[string]any{
+		"InstanceId": sandboxID,
+		"AdbAddress": adbAddr,
+		"Port":       ready.Port,
+		"Pid":        ready.PID,
+	}
+	if logPath != "" {
+		data["LogPath"] = logPath
+	}
+
+	return OK(data, func(w io.Writer) {
+		if adbConnectErr != nil {
+			fmt.Fprintf(ios.ErrOut, "tunnel ready for %s at %s (adb connect failed: %v; use 'adb connect %s' manually)\n",
+				sandboxID, adbAddr, adbConnectErr, adbAddr)
+		} else {
+			fmt.Fprintf(ios.ErrOut, "connected to %s (%s)\n", sandboxID, adbAddr)
+		}
+		if logPath != "" {
+			fmt.Fprintf(ios.ErrOut, "tunnel log: %s\n", logPath)
+		}
+	}), nil
 }
 
-// runMobileDisconnect stops a tunnel and runs adb disconnect.
-func runMobileDisconnect(_ *cobra.Command, args []string) error {
+func mobileDisconnectFn(_ *cobra.Command, args []string) (*CmdResult, error) {
 	if disconnectAll && len(args) > 0 {
-		return fmt.Errorf("--all cannot be used with a sandbox_id")
+		return nil, fmt.Errorf("--all cannot be used with an instance-id")
 	}
 
 	store, err := tunnelstore.NewStore()
 	if err != nil {
-		return fmt.Errorf("failed to initialize tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to initialize tunnel store: %w", err)
 	}
 
 	if disconnectAll {
-		return disconnectAllTunnels(store)
+		entries, err := store.List()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tunnels: %w", err)
+		}
+
+		if len(entries) == 0 {
+			data := map[string]any{"Disconnected": []string{}, "Count": 0}
+			return OK(data, func(w io.Writer) {
+				fmt.Fprintln(ios.ErrOut, "no active connections")
+			}), nil
+		}
+
+		adbPath, _ := requireAdb()
+		var disconnected []string
+
+		for id, entry := range entries {
+			if adbPath != "" {
+				adbAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
+				_ = runAdbCommand(adbPath, "disconnect", adbAddr)
+			}
+			disconnected = append(disconnected, id)
+		}
+
+		if err := store.CleanupAll(); err != nil {
+			return nil, fmt.Errorf("failed to cleanup tunnels: %w", err)
+		}
+
+		data := map[string]any{"Disconnected": disconnected, "Count": len(disconnected)}
+		return OK(data, func(w io.Writer) {
+			for _, id := range disconnected {
+				fmt.Fprintf(ios.ErrOut, "disconnected from %s\n", id)
+			}
+		}), nil
 	}
 
 	if len(args) == 0 {
-		return fmt.Errorf("must specify sandbox_id or use --all")
+		return nil, fmt.Errorf("must specify instance-id or use --all")
 	}
 
 	sandboxID := args[0]
 
-	// Look up the tunnel entry
 	entry, ok, err := store.Get(sandboxID)
 	if err != nil {
-		return fmt.Errorf("failed to read tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to read tunnel store: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("no active tunnel for %s", sandboxID)
+		return nil, fmt.Errorf("no active tunnel for %s", sandboxID)
 	}
 
-	// Try adb disconnect (best-effort, don't fail if adb is not available)
 	if adbPath, err := requireAdb(); err == nil {
 		adbAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
 		_ = runAdbCommand(adbPath, "disconnect", adbAddr)
 	}
 
-	// Kill the tunnel process and remove from store
 	if err := store.Cleanup(sandboxID); err != nil {
-		return fmt.Errorf("failed to cleanup tunnel: %w", err)
+		return nil, fmt.Errorf("failed to cleanup tunnel: %w", err)
 	}
 
-	output.PrintInfo(fmt.Sprintf("disconnected from %s", sandboxID))
-	return nil
+	data := map[string]any{"InstanceId": sandboxID}
+	return OK(data, func(w io.Writer) {
+		fmt.Fprintf(ios.ErrOut, "disconnected from %s\n", sandboxID)
+	}), nil
 }
 
-func disconnectAllTunnels(store *tunnelstore.Store) error {
-	entries, err := store.List()
-	if err != nil {
-		return fmt.Errorf("failed to list tunnels: %w", err)
-	}
-
-	if len(entries) == 0 {
-		output.PrintInfo("no active connections")
-		return nil
-	}
-
-	// Try adb disconnect for each (best-effort)
-	adbPath, _ := requireAdb()
-
-	for id, entry := range entries {
-		if adbPath != "" {
-			adbAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
-			_ = runAdbCommand(adbPath, "disconnect", adbAddr)
-		}
-		output.PrintInfo(fmt.Sprintf("disconnected from %s", id))
-	}
-
-	// Kill all and clear store
-	if err := store.CleanupAll(); err != nil {
-		return fmt.Errorf("failed to cleanup tunnels: %w", err)
-	}
-
-	return nil
-}
-
-// runMobileList displays active tunnel connections.
-func runMobileList(_ *cobra.Command, _ []string) error {
+func mobileListFn(_ *cobra.Command, _ []string) (*CmdResult, error) {
 	store, err := tunnelstore.NewStore()
 	if err != nil {
-		return fmt.Errorf("failed to initialize tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to initialize tunnel store: %w", err)
 	}
 
 	entries, err := store.List()
 	if err != nil {
-		return fmt.Errorf("failed to list tunnels: %w", err)
+		return nil, fmt.Errorf("failed to list tunnels: %w", err)
 	}
 
-	f := output.NewFormatter()
-
-	if f.IsJSON() {
-		items := make([]map[string]any, 0, len(entries))
-		for id, entry := range entries {
-			addr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
-			items = append(items, map[string]any{
-				"sandbox_id":  id,
-				"adb_address": addr,
-				"port":        entry.Port,
-				"pid":         entry.PID,
-				"created_at":  entry.CreatedAt.Format(time.RFC3339),
-				"status":      "connected",
-			})
-		}
-		return f.PrintJSON(map[string]any{"items": items, "total": len(items)})
-	}
-
-	if len(entries) == 0 {
-		fmt.Println("No active connections.")
-		fmt.Println("Use 'ags mobile connect <sandbox_id>' to connect to a mobile sandbox.")
-		return nil
-	}
-
-	// Text output: formatted table
-	fmt.Printf("%-24s %-22s %s\n", "SANDBOX", "ADB ADDRESS", "STATUS")
+	items := make([]map[string]any, 0, len(entries))
 	for id, entry := range entries {
 		addr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
-		// Note: we do NOT probe the tunnel port here (e.g., via net.Dial) because
-		// each TCP connection to the tunnel opens a new WebSocket to the server,
-		// and the server only allows one WS connection per sandbox. A probe would
-		// preempt the active ADB connection, causing "error: closed" on the next
-		// user command. The store.List() already filters out zombie entries (dead PIDs).
-		fmt.Printf("%-24s %-22s %s\n", id, addr, "connected")
+		items = append(items, map[string]any{
+			"InstanceId": id,
+			"AdbAddress": addr,
+			"Port":       entry.Port,
+			"Pid":        entry.PID,
+			"CreatedAt":  entry.CreatedAt.Format(time.RFC3339),
+			"Status":     "connected",
+		})
 	}
+	data := map[string]any{"Items": items, "Total": len(items)}
 
-	return nil
+	return OK(data, func(w io.Writer) {
+		if len(entries) == 0 {
+			fmt.Fprintln(ios.ErrOut, "No active connections.")
+			fmt.Fprintln(ios.ErrOut, "Use 'ags instance mobile connect <instance-id>' to connect.")
+			return
+		}
+		headers := []string{"INSTANCE", "ADB ADDRESS", "STATUS"}
+		rows := make([][]string, 0, len(entries))
+		for id, entry := range entries {
+			addr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
+			rows = append(rows, []string{id, addr, "connected"})
+		}
+		printTable(w, headers, rows)
+	}), nil
 }
 
-// runMobileAdb executes an adb command targeting a specific sandbox by ID.
-func runMobileAdb(cobraCmd *cobra.Command, args []string) error {
+func mobileAdbFn(cobraCmd *cobra.Command, args []string) (*CmdResult, error) {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		return cobraCmd.Help()
+		return nil, cobraCmd.Help()
+	}
+
+	if len(args) < 3 || args[1] != "--" {
+		return nil, output.NewUsageError("MISSING_SEPARATOR",
+			"usage: ags instance mobile adb <instance-id> -- <adb-args...>\nUse '--' immediately after <instance-id> to separate the adb command.",
+			"")
 	}
 
 	sandboxID := args[0]
-	adbArgs := args[1:]
+	adbArgs := args[2:]
 
 	adbPath, err := requireAdb()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	store, err := tunnelstore.NewStore()
 	if err != nil {
-		return fmt.Errorf("failed to initialize tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to initialize tunnel store: %w", err)
 	}
 
 	entry, ok, err := store.Get(sandboxID)
 	if err != nil {
-		return fmt.Errorf("failed to read tunnel store: %w", err)
+		return nil, fmt.Errorf("failed to read tunnel store: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("no active tunnel for %s; run 'ags mobile connect %s' first", sandboxID, sandboxID)
+		return nil, fmt.Errorf("no active tunnel for %s; run 'ags instance mobile connect %s' first", sandboxID, sandboxID)
 	}
 
 	adbAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
-
-	// Build adb command: adb -s <addr> <user_args...>
 	fullArgs := append([]string{"-s", adbAddr}, adbArgs...)
+
+	if isJSON() {
+		adbCmd := exec.Command(adbPath, fullArgs...)
+		var stdoutBuf, stderrBuf bytes.Buffer
+		adbCmd.Stdout = &stdoutBuf
+		adbCmd.Stderr = &stderrBuf
+		exitCode := 0
+		if err := adbCmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				return nil, err
+			}
+		}
+		data := map[string]any{
+			"Stdout": stdoutBuf.String(), "Stderr": stderrBuf.String(), "ExitCode": exitCode,
+		}
+		if exitCode != 0 {
+			// AC12: remote details in Data only; AC14: exit code passthrough
+			return &CmdResult{Data: data, ExitCode: exitCode}, nil
+		}
+		return OK(data, nil), nil
+	}
+
 	adbCmd := exec.Command(adbPath, fullArgs...)
 	adbCmd.Stdin = os.Stdin
 	adbCmd.Stdout = os.Stdout
 	adbCmd.Stderr = os.Stderr
-
-	return adbCmd.Run()
+	if err := adbCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return StreamDone(exitErr.ExitCode()), nil
+		}
+		return nil, err
+	}
+	return StreamDone(0), nil
 }
 
 // requireAdb finds the adb binary, checking ADB_PATH env var first, then PATH.
 func requireAdb() (string, error) {
-	// Check ADB_PATH environment variable
 	if p := os.Getenv("ADB_PATH"); p != "" {
 		info, err := os.Lstat(p)
 		if err != nil {
 			return "", fmt.Errorf("ADB_PATH=%q not accessible: %w", p, err)
 		}
-		// Reject symlinks to prevent path hijacking
 		if info.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("ADB_PATH=%q is a symlink (not allowed for security)", p)
 		}
@@ -626,16 +528,8 @@ func adbConnectWithRetry(adbPath, addr string, maxRetries int) error {
 			continue
 		}
 		outStr := strings.TrimSpace(string(out))
-		fmt.Println(outStr)
-		// adb connect returns "connected to <addr>" or "already connected to <addr>" on success.
+		fmt.Fprintln(ios.ErrOut, outStr)
 		if strings.Contains(outStr, "connected") {
-			// Wait for ADB protocol handshake to complete.
-			// adb connect establishes TCP and starts CNXN exchange asynchronously.
-			// Without this wait, the first user command may arrive before the
-			// handshake finishes, causing "error: closed".
-			// We cannot use get-state or shell commands to verify because each
-			// adb command opens a new TCP connection through the tunnel, triggering
-			// server-side preemption (close 4001) of the previous connection.
 			time.Sleep(2 * time.Second)
 			return nil
 		}
@@ -659,15 +553,108 @@ func mustAtoi(s string) int {
 	return n
 }
 
-// exitError is a sentinel error type that carries an exit code.
-type exitCodeError struct {
-	code int
-	err  error
+// exitError creates a CLIError with the given exit code. This is the only
+// way business functions signal non-zero exit to the Wrap framework.
+func exitError(code int, err error) error {
+	msg := "command failed"
+	if err != nil {
+		msg = err.Error()
+	}
+	return &output.CLIError{
+		Failure:  &output.Failure{Code: "CLI_ERROR", Kind: kindFromExitCode(code), Message: msg},
+		ExitCode: code,
+	}
 }
 
-func (e *exitCodeError) Error() string { return e.err.Error() }
-func (e *exitCodeError) Unwrap() error { return e.err }
+func kindFromExitCode(code int) string {
+	switch code {
+	case output.ExitUsage:
+		return output.KindUsage
+	case output.ExitNotFound:
+		return output.KindNotFound
+	case output.ExitAuthOrPermission:
+		return output.KindAuthOrPermission
+	case output.ExitConflict:
+		return output.KindConflict
+	case output.ExitRateLimit:
+		return output.KindRateLimit
+	case output.ExitTimeout:
+		return output.KindTimeout
+	case output.ExitNetwork:
+		return output.KindNetwork
+	case output.ExitBackendUnsupported:
+		return output.KindBackendUnsupported
+	case output.ExitPartialSuccess:
+		return output.KindPartialSuccess
+	case output.ExitRemoteExecFailed:
+		return output.KindRemoteExecFailed
+	default:
+		return output.KindGenericError
+	}
+}
 
-func exitError(code int, err error) error {
-	return &exitCodeError{code: code, err: err}
+// addInstanceMobileCommand registers `instance mobile` with connect/disconnect/list/adb/tunnel under the given parent.
+func addInstanceMobileCommand(parent *cobra.Command) {
+	mobileCmd := &cobra.Command{
+		Use:   "mobile",
+		Short: "Mobile sandbox ADB commands",
+		Long: `Manage ADB connections to mobile sandbox instances.
+
+Examples:
+  ags instance mobile connect <instance-id>
+  ags instance mobile list
+  ags instance mobile adb <instance-id> -- shell ls /sdcard
+  ags instance mobile disconnect <instance-id>`,
+	}
+
+	tunnelCmd := &cobra.Command{
+		Use:    "tunnel <instance-id>",
+		Short:  "Run ADB tunnel in foreground (used internally by connect)",
+		Args:   cobra.ExactArgs(1),
+		RunE:   WrapNoJSON(runMobileTunnel),
+		Hidden: true,
+	}
+	tunnelCmd.Flags().BoolVar(&daemonFlag, "daemon", false, "Run in daemon mode (used by connect)")
+	tunnelCmd.Flags().IntVar(&portFlag, "port", 0, "Local port to listen on (0 = auto-assign)")
+
+	connectCmd := &cobra.Command{
+		Use:   "connect <instance-id>",
+		Short: "Connect to mobile instance (background tunnel + adb connect)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  Wrap("instance.mobile.connect", mobileConnectFn),
+	}
+
+	disconnectCmd := &cobra.Command{
+		Use:   "disconnect [instance-id]",
+		Short: "Disconnect from mobile instance",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  Wrap("instance.mobile.disconnect", mobileDisconnectFn),
+	}
+	disconnectCmd.Flags().BoolVar(&disconnectAll, "all", false, "Disconnect all active connections")
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List active mobile instance connections",
+		Args:  cobra.NoArgs,
+		RunE:  Wrap("instance.mobile.list", mobileListFn),
+	}
+
+	adbCmd := &cobra.Command{
+		Use:   "adb <instance-id> -- <adb-args...>",
+		Short: "Execute adb command on mobile instance by ID",
+		Long: `Execute an adb command targeting a specific mobile instance.
+
+Use '--' to separate from adb arguments.
+
+Examples:
+  ags instance mobile adb <id> -- shell ls /sdcard
+  ags instance mobile adb <id> -- install app.apk
+  ags instance mobile adb <id> -- logcat`,
+		Args:               cobra.MinimumNArgs(1),
+		RunE:               Wrap("instance.mobile.adb", mobileAdbFn),
+		DisableFlagParsing: true,
+	}
+
+	mobileCmd.AddCommand(tunnelCmd, connectCmd, disconnectCmd, listCmd, adbCmd)
+	parent.AddCommand(mobileCmd)
 }

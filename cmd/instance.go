@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -11,170 +12,206 @@ import (
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/pty"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/token"
-	"github.com/TencentCloudAgentRuntime/ags-cli/internal/utils"
-	"github.com/TencentCloudAgentRuntime/ags-cli/internal/webshell"
 	"github.com/spf13/cobra"
 )
 
 var (
-	instanceTool         string
+	instanceToolName     string
 	instanceToolID       string
 	instanceTimeout      int
-	instanceTime         bool
 	instanceMountOptions []string
 	instanceAuthMode     string
+	instanceClientToken  string
+	instanceRequest      string
 
 	// list command flags
-	instanceListTool     string
-	instanceListStatus   string
-	instanceListShort    bool
-	instanceListNoHeader bool
-	instanceListOffset   int
-	instanceListLimit    int
+	instanceListTool   string
+	instanceListStatus string
+	instanceListOffset int
+	instanceListLimit  int
 
 	// login command flags
-	instanceLoginMode       string
-	instanceLoginNoBrowser  bool
-	instanceLoginTTYDBinary string
-	instanceLoginUser       string
+	instanceLoginUser string
+
+	// delete command flags
+	instanceDeleteIgnoreNotFound bool
 )
 
-// instanceCreateCmd represents the instance create command
-var instanceCreateCmd = &cobra.Command{
-	Use:     "create",
-	Aliases: []string{"c"},
-	Short:   "Create a new instance",
-	Long: `Create a new sandbox instance from a tool template.
+// ---------------------------------------------------------------------------
+// instance create
+// ---------------------------------------------------------------------------
 
-Use --tool-name/-t for tool name (e2b/cloud backend) or --tool-id for tool ID (cloud backend only).
+func instanceCreateFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	ctx := context.Background()
 
-Mount option format (--mount-option):
-  name=<name>[,dst=<target-path>][,subpath=<sub-path>][,readonly]
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 
-Auth mode (--auth-mode):
-  DEFAULT  Use backend default (currently TOKEN)
-  TOKEN    All ports require X-Access-Token
-  PUBLIC   envd management port (49983) requires token; other ports open
-  NONE     No authentication on any port
-
-Examples:
-  ags instance create -t code-interpreter-v1
-  ags instance create --tool-name code-interpreter-v1
-  ags instance create --tool code-interpreter-v1
-  ags instance create --tool-id sdt-xxxx
-  ags instance create -t my-tool --timeout 600
-  ags instance create --tool-id sdt-xxxx --mount-option "name=data,dst=/workspace,subpath=user-123"
-  ags instance create -t my-tool --auth-mode NONE`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
-
-		// Validate tool parameters
-		if instanceTool != "" && instanceToolID != "" {
-			return fmt.Errorf("cannot specify both --tool-name/--tool and --tool-id")
+	// --request is mutually exclusive with business flags
+	if instanceRequest != "" {
+		hasBusinessFlag := cmd.Flags().Changed("tool-name") || cmd.Flags().Changed("tool-id") ||
+			cmd.Flags().Changed("timeout") || cmd.Flags().Changed("mount-option") ||
+			cmd.Flags().Changed("auth-mode") || cmd.Flags().Changed("client-token")
+		if hasBusinessFlag {
+			return nil, output.NewUsageError("REQUEST_FLAG_CONFLICT",
+				"--request cannot be used with --tool-name, --tool-id, --timeout, --mount-option, --auth-mode, or --client-token",
+				"Use --request for the complete request body, or use individual flags.")
 		}
-		if instanceTool == "" && instanceToolID == "" {
-			return fmt.Errorf("must specify either --tool-name/--tool or --tool-id")
-		}
-		if instanceTimeout <= 0 {
-			return fmt.Errorf("--timeout must be greater than 0")
-		}
-
-		if err := config.Validate(); err != nil {
-			return err
-		}
-
-		// Parse mount options
-		var mountOptions []client.MountOption
-		for _, optStr := range instanceMountOptions {
-			opt, err := client.ParseMountOption(optStr)
-			if err != nil {
-				return fmt.Errorf("invalid --mount-option: %w", err)
-			}
-			mountOptions = append(mountOptions, *opt)
-		}
-
-		// Validate --auth-mode (empty means use backend default)
-		authMode, err := client.NormalizeAuthMode(instanceAuthMode)
+		reqData, err := parseRequestFlag(instanceRequest)
 		if err != nil {
-			return fmt.Errorf("invalid --auth-mode: %w", err)
+			return nil, err
 		}
 
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
+		knownFields := map[string]bool{
+			"ToolName": true, "ToolId": true, "TimeoutSeconds": true,
+			"AuthMode": true, "ClientToken": true, "MountOptions": true,
+		}
+		for k := range reqData {
+			if !knownFields[k] {
+				return nil, output.NewUsageError("UNKNOWN_REQUEST_FIELD",
+					fmt.Sprintf("unknown field in --request: %s", k),
+					fmt.Sprintf("Allowed fields: %s. Use 'ags schema instance.create -o json' for the full schema.", joinKeys(knownFields)))
+			}
+		}
+
+		opts := &client.CreateInstanceOptions{Timeout: 300}
+		if v, ok := reqData["ToolName"].(string); ok {
+			opts.ToolName = v
+		}
+		if v, ok := reqData["ToolId"].(string); ok {
+			opts.ToolID = v
+		}
+		if v, ok := reqData["TimeoutSeconds"].(float64); ok {
+			opts.Timeout = int(v)
+		} else if reqData["TimeoutSeconds"] != nil {
+			return nil, output.NewUsageError("INVALID_REQUEST_FIELD",
+				"TimeoutSeconds must be an integer", "")
+		}
+		if v, ok := reqData["AuthMode"].(string); ok {
+			opts.AuthMode = v
+		}
+		if v, ok := reqData["ClientToken"].(string); ok {
+			opts.ClientToken = v
+		}
+		if rawMounts, ok := reqData["MountOptions"].([]any); ok {
+			for _, rm := range rawMounts {
+				mo, ok := rm.(map[string]any)
+				if !ok {
+					return nil, output.NewUsageError("INVALID_REQUEST_FIELD", "MountOptions must be an array of objects", "")
+				}
+				opt := client.MountOption{}
+				if v, ok := mo["Name"].(string); ok {
+					opt.Name = v
+				}
+				if v, ok := mo["Dst"].(string); ok {
+					opt.MountPath = v
+				}
+				if v, ok := mo["Subpath"].(string); ok {
+					opt.SubPath = v
+				}
+				opts.MountOptions = append(opts.MountOptions, opt)
+			}
+		} else if reqData["MountOptions"] != nil {
+			return nil, output.NewUsageError("INVALID_REQUEST_FIELD", "MountOptions must be an array", "")
+		}
+
+		if opts.ToolName == "" && opts.ToolID == "" {
+			return nil, output.NewUsageError("MISSING_REQUIRED_FIELD",
+				"ToolName is required in --request",
+				"Provide ToolName or ToolId in the request JSON.")
+		}
+
+		apiClient, err := newControlPlaneClient(config.GetBackend())
 		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
+			return nil, err
 		}
+		return doCreateInstance(ctx, apiClient, opts)
+	}
 
-		opts := &client.CreateInstanceOptions{
-			ToolID:       instanceToolID,
-			ToolName:     instanceTool,
-			Timeout:      instanceTimeout,
-			MountOptions: mountOptions,
-			AuthMode:     authMode,
-		}
+	if instanceToolName != "" && instanceToolID != "" {
+		return nil, fmt.Errorf("cannot specify both --tool-name and --tool-id")
+	}
+	if instanceToolName == "" && instanceToolID == "" {
+		return nil, fmt.Errorf("must specify either --tool-name/-t or --tool-id")
+	}
+	if instanceTimeout <= 0 {
+		return nil, fmt.Errorf("--timeout must be greater than 0")
+	}
 
-		instance, err := apiClient.CreateInstance(ctx, opts)
+	var mountOptions []client.MountOption
+	for _, optStr := range instanceMountOptions {
+		opt, err := client.ParseMountOption(optStr)
 		if err != nil {
-			return fmt.Errorf("failed to create instance: %w", err)
+			return nil, fmt.Errorf("invalid --mount-option: %w", err)
 		}
+		mountOptions = append(mountOptions, *opt)
+	}
 
-		// Cache access token for data plane operations
-		if err := cacheInstanceToken(ctx, apiClient, instance); err != nil {
-			// Log warning but don't fail the command
-			output.PrintWarning(fmt.Sprintf("Failed to cache access token: %v", err))
-		}
+	authMode, err := client.NormalizeAuthMode(instanceAuthMode)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --auth-mode: %w", err)
+	}
 
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if instanceTime {
-			timing = output.NewTiming(totalDuration)
-		}
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, err
+	}
 
-		f := output.NewFormatter()
+	opts := &client.CreateInstanceOptions{
+		ToolID:       instanceToolID,
+		ToolName:     instanceToolName,
+		Timeout:      instanceTimeout,
+		MountOptions: mountOptions,
+		AuthMode:     authMode,
+		ClientToken:  instanceClientToken,
+	}
+	return doCreateInstance(ctx, apiClient, opts)
+}
 
-		if f.IsJSON() {
-			data := map[string]any{
-				"status":         "success",
-				"message":        fmt.Sprintf("Instance created: %s", instance.ID),
-				"id":             instance.ID,
-				"tool":           instance.ToolName,
-				"toolId":         instance.ToolID,
-				"instanceStatus": instance.Status,
-				"createdAt":      instance.CreatedAt,
-			}
-			if len(instance.MountOptions) > 0 {
-				data["mountOptions"] = instance.MountOptions
-			}
-			if timing != nil {
-				data["timing"] = timing
-			}
-			return f.PrintJSON(data)
-		}
+func joinKeys(m map[string]bool) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return strings.Join(keys, ", ")
+}
 
-		output.PrintSuccess(fmt.Sprintf("Instance created: %s", instance.ID))
+func doCreateInstance(ctx context.Context, apiClient client.ControlPlaneClient, opts *client.CreateInstanceOptions) (*CmdResult, error) {
 
-		result := []output.KeyValue{
+	instance, err := apiClient.CreateInstance(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create instance: %w", err)
+	}
+
+	if err := cacheInstanceToken(ctx, apiClient, instance); err != nil {
+		stderr("Warning: Failed to cache access token: %v\n", err)
+	}
+
+	data := &output.InstanceData{
+		Id:       instance.ID,
+		ToolId:   instance.ToolID,
+		ToolName: instance.ToolName,
+		Status:   instance.Status,
+		CreatedAt: instance.CreatedAt,
+	}
+	if len(instance.MountOptions) > 0 {
+		data.MountOptions = convertMountOptions(instance.MountOptions)
+	}
+
+	return OKWithEffects(data, func(w io.Writer) {
+		fmt.Fprintf(ios.ErrOut, "Instance created: %s\n", instance.ID)
+		kvs := []KeyValue{
 			{Key: "ID", Value: instance.ID},
 			{Key: "Tool", Value: instance.ToolName},
 			{Key: "Status", Value: instance.Status},
 			{Key: "Created", Value: instance.CreatedAt},
 		}
-
-		// Add mount options if present
 		if len(instance.MountOptions) > 0 {
-			result = append(result, output.KeyValue{Key: "MountOptions", Value: formatMountOptionsSummary(instance.MountOptions)})
+			kvs = append(kvs, KeyValue{Key: "MountOptions", Value: formatMountOptionsSummary(instance.MountOptions)})
 		}
-
-		if err := f.PrintKeyValue(result); err != nil {
-			return err
-		}
-
-		if instanceTime {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
+		printKV(w, kvs)
+	}, output.Effect{Kind: "create", Resource: "instance", Id: instance.ID}), nil
 }
 
 // formatMountOptionsSummary formats mount options for display
@@ -219,81 +256,52 @@ func valueOrDefault(value, defaultValue string) string {
 	return value
 }
 
-// instanceListCmd represents the instance list command
-var instanceListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"ls"},
-	Short:   "List instances",
-	Long: `List sandbox instances with optional filters.
+// ---------------------------------------------------------------------------
+// instance list
+// ---------------------------------------------------------------------------
 
-Examples:
-  ags instance list
-  ags instance list --tool-id sdt-xxx
-  ags instance list --status RUNNING
-  ags instance list --short
-  ags instance list --no-header
-  ags instance list --offset 0 --limit 50`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
+func instanceListFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	ctx := context.Background()
 
-		if err := config.Validate(); err != nil {
-			return err
-		}
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
-		}
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
 
-		opts := &client.ListInstancesOptions{
-			ToolID: instanceListTool,
-			Status: instanceListStatus,
-			Offset: instanceListOffset,
-			Limit:  instanceListLimit,
-		}
+	opts := &client.ListInstancesOptions{
+		ToolID: instanceListTool,
+		Status: instanceListStatus,
+		Offset: instanceListOffset,
+		Limit:  instanceListLimit,
+	}
 
-		result, err := apiClient.ListInstances(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("failed to list instances: %w", err)
-		}
+	result, err := apiClient.ListInstances(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list instances: %w", err)
+	}
 
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if instanceTime {
-			timing = output.NewTiming(totalDuration)
-		}
+	items := make([]map[string]any, len(result.Instances))
+	for i := range result.Instances {
+		items[i] = toCanonicalInstanceData(&result.Instances[i])
+	}
+	data := map[string]any{
+		"Items": items,
+		"Pagination": map[string]any{
+			"Offset":     instanceListOffset,
+			"Limit":      instanceListLimit,
+			"Total":      result.TotalCount,
+			"NextCursor": nil,
+		},
+	}
 
-		f := output.NewFormatter()
-
+	return OK(data, func(w io.Writer) {
 		if len(result.Instances) == 0 {
-			output.PrintInfo("No instances found")
-			if instanceTime && !f.IsJSON() {
-				f.PrintTiming(timing)
-			}
-			return nil
-		}
-
-		if instanceListShort {
-			// Short format: only ID
-			if f.IsJSON() {
-				ids := make([]string, len(result.Instances))
-				for i, inst := range result.Instances {
-					ids[i] = inst.ID
-				}
-				data := map[string]any{"ids": ids}
-				if timing != nil {
-					data["timing"] = timing
-				}
-				return f.PrintJSON(data)
-			}
-			for _, inst := range result.Instances {
-				fmt.Println(inst.ID)
-			}
-			if instanceTime {
-				f.PrintTiming(timing)
-			}
-			return nil
+			fmt.Fprintln(ios.ErrOut, "No instances found")
+			return
 		}
 
 		headers := []string{"ID", "TOOL", "STATUS", "TIMEOUT", "EXPIRES", "MOUNTS", "CREATED"}
@@ -319,32 +327,10 @@ Examples:
 			}
 		}
 
-		// Build pagination info
-		var pagination *output.Pagination
-		if result.TotalCount > 0 {
-			pagination = &output.Pagination{
-				Offset: instanceListOffset,
-				Limit:  instanceListLimit,
-				Total:  result.TotalCount,
-			}
-		}
-
-		if instanceListNoHeader {
-			if err := f.PrintTableNoHeader(rows); err != nil {
-				return err
-			}
-		} else {
-			if err := f.PrintTable(headers, rows, pagination); err != nil {
-				return err
-			}
-		}
-
-		if instanceTime && !f.IsJSON() {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
+		shown := len(result.Instances)
+		total := result.TotalCount
+		printTableWithPagination(w, headers, rows, shown, total)
+	}), nil
 }
 
 // formatTimeout formats timeout seconds to human readable format
@@ -370,117 +356,59 @@ func formatTimeShort(isoTime string) string {
 	return t.Local().Format("01-02 15:04")
 }
 
-// instanceGetCmd represents the instance get command
-var instanceGetCmd = &cobra.Command{
-	Use:   "get <instance-id>",
-	Short: "Get instance details",
-	Long:  `Get detailed information about a specific instance.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
-		instanceID := args[0]
+// ---------------------------------------------------------------------------
+// instance get
+// ---------------------------------------------------------------------------
 
-		if err := config.Validate(); err != nil {
-			return err
-		}
+func instanceGetFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	ctx := context.Background()
+	instanceID := args[0]
 
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
-		}
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 
-		instance, err := apiClient.GetInstance(ctx, instanceID)
-		if err != nil {
-			return fmt.Errorf("failed to get instance: %w", err)
-		}
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
 
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if instanceTime {
-			timing = output.NewTiming(totalDuration)
-		}
+	instance, err := apiClient.GetInstance(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance: %w", err)
+	}
 
-		f := output.NewFormatter()
+	data := toCanonicalInstanceData(instance)
 
-		if f.IsJSON() {
-			data := map[string]any{
-				"id":        instance.ID,
-				"toolId":    instance.ToolID,
-				"toolName":  instance.ToolName,
-				"status":    instance.Status,
-				"createdAt": instance.CreatedAt,
-			}
-			if instance.UpdatedAt != "" {
-				data["updatedAt"] = instance.UpdatedAt
-			}
-			if instance.TimeoutSeconds != nil {
-				data["timeoutSeconds"] = *instance.TimeoutSeconds
-			}
-			if instance.ExpiresAt != "" {
-				data["expiresAt"] = instance.ExpiresAt
-			}
-			if instance.StopReason != "" {
-				data["stopReason"] = instance.StopReason
-			}
-			if len(instance.Endpoints) > 0 {
-				data["endpoints"] = instance.Endpoints
-			}
-			if len(instance.MountOptions) > 0 {
-				data["mountOptions"] = instance.MountOptions
-			}
-			if timing != nil {
-				data["timing"] = timing
-			}
-			return f.PrintJSON(data)
-		}
-
-		// Build ordered key-value pairs
-		result := []output.KeyValue{
+	return OK(data, func(w io.Writer) {
+		kvs := []KeyValue{
 			{Key: "ID", Value: instance.ID},
 			{Key: "ToolID", Value: instance.ToolID},
 			{Key: "ToolName", Value: instance.ToolName},
 			{Key: "Status", Value: instance.Status},
 			{Key: "Created", Value: instance.CreatedAt},
 		}
-
 		if instance.UpdatedAt != "" {
-			result = append(result, output.KeyValue{Key: "Updated", Value: instance.UpdatedAt})
+			kvs = append(kvs, KeyValue{Key: "Updated", Value: instance.UpdatedAt})
 		}
-
 		if instance.TimeoutSeconds != nil {
-			result = append(result, output.KeyValue{Key: "Timeout", Value: formatTimeout(*instance.TimeoutSeconds)})
+			kvs = append(kvs, KeyValue{Key: "Timeout", Value: formatTimeout(*instance.TimeoutSeconds)})
 		}
-
 		if instance.ExpiresAt != "" {
-			result = append(result, output.KeyValue{Key: "Expires", Value: instance.ExpiresAt})
+			kvs = append(kvs, KeyValue{Key: "Expires", Value: instance.ExpiresAt})
 		}
-
 		if instance.StopReason != "" {
-			result = append(result, output.KeyValue{Key: "StopReason", Value: instance.StopReason})
+			kvs = append(kvs, KeyValue{Key: "StopReason", Value: instance.StopReason})
 		}
-
-		// Add endpoints if present
 		if len(instance.Endpoints) > 0 {
-			result = append(result, output.KeyValue{Key: "Endpoints", Value: formatEndpoints(instance.Endpoints)})
+			kvs = append(kvs, KeyValue{Key: "Endpoints", Value: formatEndpoints(instance.Endpoints)})
 		}
-
-		// Add mount options if present
 		mountOptsStr := formatMountOptionsDetail(instance.MountOptions)
 		if mountOptsStr != "" {
-			result = append(result, output.KeyValue{Key: "MountOptions", Value: mountOptsStr})
+			kvs = append(kvs, KeyValue{Key: "MountOptions", Value: mountOptsStr})
 		}
-
-		if err := f.PrintKeyValue(result); err != nil {
-			return err
-		}
-
-		if instanceTime {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
+		printKV(w, kvs)
+	}), nil
 }
 
 // formatEndpoints formats endpoints for display
@@ -495,319 +423,154 @@ func formatEndpoints(endpoints []client.Endpoint) string {
 	return strings.Join(parts, "\n")
 }
 
-// instanceDeleteCmd represents the instance delete command
-var instanceDeleteCmd = &cobra.Command{
-	Use:     "delete <instance-id> [instance-id...]",
-	Aliases: []string{"rm", "del"},
-	Short:   "Delete instances",
-	Long:    `Delete one or more sandbox instances. This operation executes immediately and does not prompt for confirmation.`,
-	Args:    cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
+// ---------------------------------------------------------------------------
+// instance delete
+// ---------------------------------------------------------------------------
 
-		if err := config.Validate(); err != nil {
-			return err
-		}
+func instanceDeleteFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
+	ctx := context.Background()
 
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
-		}
-
-		// Initialize token cache for cleanup
-		tokenCache, cacheErr := token.NewCache()
-		if cacheErr != nil {
-			output.PrintWarning(fmt.Sprintf("Failed to initialize token cache: %v", cacheErr))
-		}
-
-		f := output.NewFormatter()
-		var failed []string
-
-		for _, instanceID := range args {
-			if err := apiClient.DeleteInstance(ctx, instanceID); err != nil {
-				output.PrintWarning(fmt.Sprintf("Failed to delete instance %s: %v", instanceID, err))
-				failed = append(failed, instanceID)
-			} else {
-				// Clean up cached token
-				if tokenCache != nil {
-					_ = tokenCache.Delete(instanceID)
-				}
-				if !f.IsJSON() {
-					output.PrintSuccess(fmt.Sprintf("Instance deleted: %s", instanceID))
-				}
-			}
-		}
-
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if instanceTime {
-			timing = output.NewTiming(totalDuration)
-		}
-
-		if f.IsJSON() {
-			data := map[string]any{
-				"status":  "success",
-				"deleted": len(args) - len(failed),
-				"failed":  len(failed),
-			}
-			if len(failed) > 0 {
-				data["status"] = "partial"
-				data["failed_ids"] = failed
-			}
-			if timing != nil {
-				data["timing"] = timing
-			}
-			return f.PrintJSON(data)
-		}
-
-		if instanceTime {
-			f.PrintTiming(timing)
-		}
-
-		if len(failed) > 0 {
-			return fmt.Errorf("failed to delete %d instance(s)", len(failed))
-		}
-		return nil
-	},
-}
-
-// instanceLoginCmd represents the instance login command
-var instanceLoginCmd = &cobra.Command{
-	Use:   "login <instance-id>",
-	Short: "Login to instance via terminal",
-	Long: `Login to a sandbox instance interactively.
-
-Two modes are available (controlled by --mode):
-
-PTY mode (default):
-  Connects a native terminal session directly in your current console using the
-  envd PTY capability.  No browser or extra binaries are required.
-
-  ags instance login abc123
-
-Webshell mode (--mode webshell):
-  Downloads and starts a ttyd webshell service inside the sandbox, then opens
-  the terminal in your browser.
-
-  ags instance login abc123 --mode webshell
-  ags instance login abc123 --mode webshell --no-browser
-  ags instance login abc123 --mode webshell --ttyd-binary /path/to/ttyd`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		start := time.Now()
-		instanceID := args[0]
-
-		if err := config.Validate(); err != nil {
-			return err
-		}
-
-		apiClient, err := client.NewControlPlaneClient(config.GetBackend())
-		if err != nil {
-			return fmt.Errorf("failed to create API client: %w", err)
-		}
-
-		// Get instance information
-		output.PrintInfo(fmt.Sprintf("Connecting to instance %s...", instanceID))
-		instance, err := apiClient.GetInstance(ctx, instanceID)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				return fmt.Errorf("instance %s not found. Please check the instance ID and try again", instanceID)
-			}
-			if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "access") {
-				return fmt.Errorf("access denied to instance %s. Please check your permissions", instanceID)
-			}
-			return fmt.Errorf("failed to get instance %s: %w", instanceID, err)
-		}
-
-		// Check instance status (case-insensitive comparison)
-		status := strings.ToUpper(instance.Status)
-		if status != "RUNNING" {
-			switch status {
-			case "CREATING", "STARTING":
-				return fmt.Errorf("instance %s is still being created. Please wait for it to finish and try again", instanceID)
-			case "STOPPED", "STOPPING":
-				return fmt.Errorf("instance %s is stopped. Please start it first using 'ags instance create' or contact support", instanceID)
-			case "ERROR", "FAILED":
-				return fmt.Errorf("instance %s is in error state. Please contact support or create a new instance", instanceID)
-			default:
-				return fmt.Errorf("instance %s is not running (status: %s). Please wait for it to be ready", instanceID, instance.Status)
-			}
-		}
-
-		// Get access token from cache or acquire new one. When the instance
-		// is not secure (AuthMode=NONE on Cloud, or envdAccessToken empty on
-		// E2B), the data plane does not require (nor accept) a token, so we
-		// skip the token lookup entirely.
-		var accessToken string
-		if instance.Secure {
-			accessToken, err = GetCachedTokenOrAcquire(ctx, instanceID)
-			if err != nil {
-				return fmt.Errorf("failed to get access token: %w", err)
-			}
-		}
-
-		// Determine data plane domain
-		cfg := config.Get()
-		domain := cfg.DataPlaneRegionDomain()
-
-		// Validate and route by login mode
-		mode := strings.ToLower(instanceLoginMode)
-		switch mode {
-		case "pty":
-			// PTY mode: connect a native PTY session directly in the current terminal
-			output.PrintInfo(fmt.Sprintf("Starting PTY session in instance %s...", instanceID))
-			session := pty.NewSession(accessToken, domain)
-			return session.Connect(ctx, instanceID, resolveUser(instanceLoginUser))
-		case "webshell":
-			// fall through to webshell logic below
-		default:
-			return fmt.Errorf("unsupported login mode %q: must be \"pty\" or \"webshell\"", instanceLoginMode)
-		}
-
-		// Create webshell manager with access token (no AKSK needed)
-		webshellMgr := webshell.NewManagerWithToken(accessToken, domain)
-
-		output.PrintInfo("Checking webshell status...")
-
-		// Check if ttyd is already running
-		running, err := webshellMgr.IsRunning(ctx, instanceID)
-		if err != nil {
-			output.PrintWarning("Failed to check webshell status, will attempt to start service")
-			running = false // Assume not running, try to start
-		}
-
-		if !running {
-			output.PrintInfo("Setting up webshell service...")
-			output.PrintInfo("This may take a few moments on first use...")
-
-			// Download or upload ttyd
-			if instanceLoginTTYDBinary != "" {
-				// Upload custom ttyd binary
-				output.PrintInfo(fmt.Sprintf("Uploading custom ttyd binary from %s...", instanceLoginTTYDBinary))
-				if err := webshellMgr.UploadTTYD(ctx, instanceID, instanceLoginTTYDBinary); err != nil {
-					if strings.Contains(err.Error(), "validation failed") {
-						return fmt.Errorf("invalid ttyd binary file: %w\n\nTip: Please ensure the file is a valid ttyd binary for the target architecture", err)
-					}
-					if strings.Contains(err.Error(), "does not exist") {
-						return fmt.Errorf("ttyd binary file not found: %w\n\nTip: Please check the file path and try again", err)
-					}
-					return fmt.Errorf("failed to upload ttyd binary: %w", err)
-				}
-				output.PrintSuccess("Custom ttyd binary uploaded successfully")
-			} else {
-				// Download ttyd from GitHub
-				if err := webshellMgr.Download(ctx, instanceID); err != nil {
-					if strings.Contains(err.Error(), "unsupported platform") {
-						return fmt.Errorf("webshell is not supported on this platform: %w", err)
-					}
-					if strings.Contains(err.Error(), "download timeout") || strings.Contains(err.Error(), "network") {
-						return fmt.Errorf("failed to download webshell service due to network issues. Please check your connection and try again, or use --ttyd-binary to upload a local ttyd binary: %w", err)
-					}
-					return fmt.Errorf("failed to download webshell service: %w\n\nTip: This might be a temporary network issue. Please try again in a few moments, or use --ttyd-binary to upload a local ttyd binary", err)
-				}
-			}
-
-			// Start ttyd service
-			if err := webshellMgr.Start(ctx, instanceID, accessToken, resolveUser(instanceLoginUser)); err != nil {
-				if strings.Contains(err.Error(), "port.*already in use") {
-					return fmt.Errorf("webshell port is already in use. Another webshell session might be running.\nPlease wait a moment and try again, or contact support if the issue persists")
-				}
-				if strings.Contains(err.Error(), "health check failed") {
-					return fmt.Errorf("webshell service failed to start properly: %w\n\nTip: This might be a temporary issue. Please try again in a few moments", err)
-				}
-				return fmt.Errorf("failed to start webshell service: %w\n\nTip: Please try again in a few moments. If the issue persists, contact support", err)
-			}
-
-			output.PrintSuccess("Webshell service started successfully")
-		} else {
-			output.PrintInfo("Webshell service is already running")
-		}
-
-		// Build access URL
-		webshellURL := buildWebshellURL(instanceID, accessToken)
-
-		totalDuration := time.Since(start)
-		var timing *output.Timing
-		if instanceTime {
-			timing = output.NewTiming(totalDuration)
-		}
-
-		f := output.NewFormatter()
-
-		if f.IsJSON() {
-			data := map[string]any{
-				"status":      "success",
-				"message":     "Webshell is ready",
-				"instanceId":  instanceID,
-				"webshellUrl": webshellURL,
-				"toolName":    instance.ToolName,
-			}
-			if timing != nil {
-				data["timing"] = timing
-			}
-			return f.PrintJSON(data)
-		}
-
-		// Print access information
-		result := []output.KeyValue{
-			{Key: "Instance", Value: instanceID},
-			{Key: "Tool", Value: instance.ToolName},
-			{Key: "Webshell URL", Value: webshellURL},
-		}
-
-		if err := f.PrintKeyValue(result); err != nil {
-			return err
-		}
-
-		// Try to open browser
-		if !instanceLoginNoBrowser {
-			if utils.IsBrowserAvailable() {
-				output.PrintInfo("Opening webshell in browser...")
-				if err := utils.OpenBrowser(webshellURL); err != nil {
-					output.PrintWarning(fmt.Sprintf("Failed to open browser automatically: %v", err))
-					output.PrintInfo("Please manually copy and paste the URL above into your browser")
-					output.PrintInfo("Tip: You can use --no-browser flag to skip automatic browser opening")
-				} else {
-					output.PrintSuccess("Webshell opened in browser successfully")
-					output.PrintInfo("You should now see the terminal interface in your browser")
-					output.PrintInfo("Tip: If the page doesn't load, wait a moment and refresh")
-				}
-			} else {
-				output.PrintWarning("No browser available on this system")
-				output.PrintInfo("Please manually copy and paste the URL above into a browser on any device")
-				output.PrintInfo("The webshell will be accessible from any browser with network access to the instance")
-			}
-		} else {
-			output.PrintInfo("Browser opening disabled. Please manually open the URL above")
-		}
-
-		if instanceTime {
-			f.PrintTiming(timing)
-		}
-
-		return nil
-	},
-}
-
-// buildWebshellURL builds webshell access URL
-// Format: https://{port}-{instance_id}.{region}.{domain}/?access_token={token}
-// When accessToken is empty (instance is not secure), the query parameter is omitted.
-func buildWebshellURL(instanceID, accessToken string) string {
-	cfg := config.Get()
-	host := fmt.Sprintf("8080-%s.%s.%s", instanceID, cfg.Region, cfg.DataPlaneDomain())
-	if accessToken == "" {
-		return fmt.Sprintf("https://%s/", host)
+	if err := config.Validate(); err != nil {
+		return nil, err
 	}
-	return fmt.Sprintf("https://%s/?access_token=%s", host, accessToken)
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	tokenCache, cacheErr := token.NewCache()
+	if cacheErr != nil {
+		stderr("Warning: Failed to initialize token cache: %v\n", cacheErr)
+	}
+
+	var deleted []string
+	var failed []string
+	var warnings []string
+	var alreadyAbsent []string
+
+	for _, instanceID := range args {
+		if err := apiClient.DeleteInstance(ctx, instanceID); err != nil {
+			if instanceDeleteIgnoreNotFound && isNotFoundError(err) {
+				stderr("Instance %s not found (ignored)\n", instanceID)
+				alreadyAbsent = append(alreadyAbsent, instanceID)
+				warnings = append(warnings, fmt.Sprintf("Instance %s: AlreadyAbsent", instanceID))
+				continue
+			}
+			stderr("Failed to delete instance %s: %v\n", instanceID, err)
+			failed = append(failed, instanceID)
+			warnings = append(warnings, fmt.Sprintf("Failed to delete %s: %v", instanceID, err))
+		} else {
+			if tokenCache != nil {
+				_ = tokenCache.Delete(instanceID)
+			}
+			deleted = append(deleted, instanceID)
+		}
+	}
+
+	data := map[string]any{
+		"Deleted":       len(deleted),
+		"Failed":        len(failed),
+		"FailedIds":     failed,
+		"AlreadyAbsent": alreadyAbsent,
+	}
+
+	if len(failed) > 0 {
+		return PartialResult(data, warnings, func(w io.Writer) {
+			for _, id := range deleted {
+				fmt.Fprintf(ios.ErrOut, "Instance deleted: %s\n", id)
+			}
+			fmt.Fprintf(ios.ErrOut, "failed to delete %d instance(s)\n", len(failed))
+		}), nil
+	}
+
+	return OK(data, func(w io.Writer) {
+		for _, id := range deleted {
+			fmt.Fprintf(ios.ErrOut, "Instance deleted: %s\n", id)
+		}
+	}), nil
+}
+
+// isNotFoundError checks whether an error indicates a "not found" condition.
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "404")
+}
+
+// ---------------------------------------------------------------------------
+// instance login (PTY-only, no JSON support)
+// ---------------------------------------------------------------------------
+
+func instanceLoginFn(cmd *cobra.Command, args []string) error {
+	if err := requireTTY(); err != nil {
+		return err
+	}
+	if nonInteractive {
+		return exitError(2, fmt.Errorf("instance login requires interactive mode"))
+	}
+
+	ctx := context.Background()
+	instanceID := args[0]
+
+	if err := config.Validate(); err != nil {
+		return err
+	}
+
+	apiClient, err := newControlPlaneClient(config.GetBackend())
+	if err != nil {
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	stderr("Connecting to instance %s...\n", instanceID)
+	instance, err := apiClient.GetInstance(ctx, instanceID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return fmt.Errorf("instance %s not found. Please check the instance ID and try again", instanceID)
+		}
+		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "access") {
+			return fmt.Errorf("access denied to instance %s. Please check your permissions", instanceID)
+		}
+		return fmt.Errorf("failed to get instance %s: %w", instanceID, err)
+	}
+
+	status := strings.ToUpper(instance.Status)
+	if status != "RUNNING" {
+		switch status {
+		case "CREATING", "STARTING":
+			return fmt.Errorf("instance %s is still being created. Please wait for it to finish and try again", instanceID)
+		case "STOPPED", "STOPPING":
+			return fmt.Errorf("instance %s is stopped. Please start it first using 'ags instance create' or contact support", instanceID)
+		case "ERROR", "FAILED":
+			return fmt.Errorf("instance %s is in error state. Please contact support or create a new instance", instanceID)
+		default:
+			return fmt.Errorf("instance %s is not running (status: %s). Please wait for it to be ready", instanceID, instance.Status)
+		}
+	}
+
+	var accessToken string
+	if instance.Secure {
+		accessToken, err = GetCachedTokenOrAcquire(ctx, instanceID)
+		if err != nil {
+			return fmt.Errorf("failed to get access token: %w", err)
+		}
+	}
+
+	cfg := config.Get()
+	domain := cfg.DataPlaneRegionDomain()
+
+	stderr("Starting PTY session in instance %s...\n", instanceID)
+	session := pty.NewSession(accessToken, domain)
+	return session.Connect(ctx, instanceID, resolveUser(instanceLoginUser))
 }
 
 func init() {
 	addInstanceCommand(rootCmd)
 }
 
-// addInstanceCommand adds the instance command to a parent command
+// addInstanceCommand adds the instance command and ALL subcommands to a parent command.
 func addInstanceCommand(parent *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:     "instance",
@@ -816,111 +579,124 @@ func addInstanceCommand(parent *cobra.Command) {
 		Long:    `Manage sandbox instances. Instances are running sandboxes created from tools.`,
 	}
 
+	// --- create ---
 	createCmd := &cobra.Command{
 		Use:     "create",
 		Aliases: []string{"c"},
-		Short:   "Create/start a new instance",
-		Long:    instanceCreateCmd.Long,
-		RunE:    instanceCreateCmd.RunE,
+		Short:   "Create a new instance",
+		Long: `Create a new sandbox instance from a tool template.
+
+Use --tool-name/-t for tool name (e2b/cloud backend) or --tool-id for tool ID (cloud backend only).
+
+Mount option format (--mount-option):
+  name=<name>[,dst=<target-path>][,subpath=<sub-path>][,readonly]
+
+Auth mode (--auth-mode):
+  DEFAULT  Use backend default (currently TOKEN)
+  TOKEN    All ports require X-Access-Token
+  PUBLIC   envd management port (49983) requires token; other ports open
+  NONE     No authentication on any port
+
+Examples:
+  ags instance create -t code-interpreter-v1
+  ags instance create --tool-name code-interpreter-v1
+  ags instance create --tool-id sdt-xxxx
+  ags instance create -t my-tool --timeout 600
+  ags instance create --tool-id sdt-xxxx --mount-option "name=data,dst=/workspace,subpath=user-123"
+  ags instance create -t my-tool --auth-mode NONE`,
 	}
-	createCmd.Flags().StringVarP(&instanceTool, "tool-name", "t", "", "Tool name (e2b/cloud backend)")
-	createCmd.Flags().StringVar(&instanceTool, "tool", "", "Tool name (alias for --tool-name)")
+	createCmd.Flags().StringVarP(&instanceToolName, "tool-name", "t", "", "Tool name (e2b/cloud backend)")
 	createCmd.Flags().StringVar(&instanceToolID, "tool-id", "", "Tool ID (cloud backend only)")
 	createCmd.Flags().IntVar(&instanceTimeout, "timeout", 300, "Instance timeout in seconds")
-	createCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time to stderr")
 	createCmd.Flags().StringArrayVar(&instanceMountOptions, "mount-option", nil, "Mount option to override tool storage config\n"+client.FormatMountOptionHelp())
 	createCmd.Flags().StringVar(&instanceAuthMode, "auth-mode", client.AuthModeDefault, "Auth mode: DEFAULT, TOKEN, NONE, PUBLIC")
+	createCmd.Flags().StringVar(&instanceClientToken, "client-token", "", "Client token for duplicate creation protection")
+	createCmd.Flags().StringVar(&instanceRequest, "request", "", "Complete request body as JSON, @file, or - for stdin")
+	createCmd.RunE = Wrap("instance.create", instanceCreateFn)
 	cmd.AddCommand(createCmd)
 
-	// start is an alias for create, but shown as separate command
-	startCmd := &cobra.Command{
-		Use:   "start",
-		Short: "Start a new instance (alias for create)",
-		Long:  `Start a new sandbox instance from a tool template. This is an alias for 'create'.`,
-		RunE:  instanceCreateCmd.RunE,
-	}
-	startCmd.Flags().StringVarP(&instanceTool, "tool-name", "t", "", "Tool name (e2b/cloud backend)")
-	startCmd.Flags().StringVar(&instanceTool, "tool", "", "Tool name (alias for --tool-name)")
-	startCmd.Flags().StringVar(&instanceToolID, "tool-id", "", "Tool ID (cloud backend only)")
-	startCmd.Flags().IntVar(&instanceTimeout, "timeout", 300, "Instance timeout in seconds")
-	startCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time to stderr")
-	startCmd.Flags().StringArrayVar(&instanceMountOptions, "mount-option", nil, "Mount option to override tool storage config\n"+client.FormatMountOptionHelp())
-	startCmd.Flags().StringVar(&instanceAuthMode, "auth-mode", client.AuthModeDefault, "Auth mode: DEFAULT, TOKEN, NONE, PUBLIC")
-	cmd.AddCommand(startCmd)
-
+	// --- list ---
 	listCmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List instances",
-		Long:    instanceListCmd.Long,
-		RunE:    instanceListCmd.RunE,
+		Long: `List sandbox instances with optional filters.
+
+Examples:
+  ags instance list
+  ags instance list --tool-id sdt-xxx
+  ags instance list --status RUNNING
+  ags instance list --offset 0 --limit 50`,
 	}
 	listCmd.Flags().StringVar(&instanceListTool, "tool-id", "", "Filter by tool ID")
 	listCmd.Flags().StringVarP(&instanceListStatus, "status", "s", "", "Filter by status (STARTING, RUNNING, FAILED, STOPPING, STOPPED)")
-	listCmd.Flags().BoolVar(&instanceListShort, "short", false, "Only show instance IDs")
-	listCmd.Flags().BoolVar(&instanceListNoHeader, "no-header", false, "Hide table header")
 	listCmd.Flags().IntVar(&instanceListOffset, "offset", 0, "Pagination offset")
 	listCmd.Flags().IntVar(&instanceListLimit, "limit", 20, "Pagination limit (max 100)")
-	listCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time")
+	listCmd.RunE = Wrap("instance.list", instanceListFn)
 	cmd.AddCommand(listCmd)
 
+	// --- get ---
 	getCmd := &cobra.Command{
 		Use:   "get <instance-id>",
 		Short: "Get instance details",
 		Long:  `Get detailed information about a specific instance.`,
 		Args:  cobra.ExactArgs(1),
-		RunE:  instanceGetCmd.RunE,
 	}
-	getCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time")
+	getCmd.RunE = Wrap("instance.get", instanceGetFn)
 	cmd.AddCommand(getCmd)
 
+	// --- delete ---
 	deleteCmd := &cobra.Command{
 		Use:     "delete <instance-id> [instance-id...]",
 		Aliases: []string{"rm", "del"},
 		Short:   "Delete instances",
 		Long:    `Delete one or more sandbox instances. This operation executes immediately and does not prompt for confirmation.`,
 		Args:    cobra.MinimumNArgs(1),
-		RunE:    instanceDeleteCmd.RunE,
 	}
-	deleteCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time")
+	deleteCmd.Flags().BoolVar(&instanceDeleteIgnoreNotFound, "ignore-not-found", false, "Treat 'not found' errors as success")
+	deleteCmd.RunE = Wrap("instance.delete", instanceDeleteFn)
 	cmd.AddCommand(deleteCmd)
 
-	// stop is an alias for delete, but shown as separate command
-	stopCmd := &cobra.Command{
-		Use:   "stop <instance-id> [instance-id...]",
-		Short: "Stop instances (alias for delete)",
-		Long:  `Stop one or more sandbox instances. This is an alias for 'delete' and executes immediately without prompting for confirmation.`,
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  instanceDeleteCmd.RunE,
-	}
-	stopCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time")
-	cmd.AddCommand(stopCmd)
-
-	// login command
+	// --- login (PTY-only) ---
 	loginCmd := &cobra.Command{
 		Use:   "login <instance-id>",
 		Short: "Login to instance via terminal",
-		Long:  instanceLoginCmd.Long,
-		Args:  cobra.ExactArgs(1),
-		RunE:  instanceLoginCmd.RunE,
+		Long: `Login to a sandbox instance interactively using a native PTY session.
+
+Connects a terminal session directly in your current console.
+
+Examples:
+  ags instance login <id>
+  ags instance login <id> --user root`,
+		Args: cobra.ExactArgs(1),
 	}
-	loginCmd.Flags().StringVar(&instanceLoginMode, "mode", "pty", "Login mode: \"pty\" (native terminal, default) or \"webshell\" (browser-based)")
-	loginCmd.Flags().BoolVar(&instanceLoginNoBrowser, "no-browser", false, "Don't open browser automatically (webshell mode)")
-	loginCmd.Flags().StringVar(&instanceLoginTTYDBinary, "ttyd-binary", "", "Path to custom ttyd binary file to upload (webshell mode)")
 	loginCmd.Flags().StringVar(&instanceLoginUser, "user", "", "User to run terminal as (default: \"user\")")
-	loginCmd.Flags().BoolVar(&instanceTime, "time", false, "Print elapsed time")
+	loginCmd.RunE = WrapNoJSON(instanceLoginFn)
 	cmd.AddCommand(loginCmd)
+
+	// --- code (subgroup with run) ---
+	addInstanceCodeRunCommand(cmd)
+
+	// --- exec ---
+	addInstanceExecCommand(cmd)
+
+	// --- file (upload / download) ---
+	addFileCommand(cmd)
+
+	// --- browser (vnc) ---
+	addInstanceBrowserCommand(cmd)
+
+	// --- proxy ---
+	addInstanceProxyCommand(cmd)
+
+	// --- mobile (connect / disconnect / list / adb / tunnel) ---
+	addInstanceMobileCommand(cmd)
 
 	parent.AddCommand(cmd)
 }
 
 // cacheInstanceToken caches the access token for an instance.
-// For E2B backend, the token is returned during instance creation.
-// For Cloud backend, we need to call AcquireToken API.
-// When the instance is not secure, no token is required for data plane
-// access and this function is a no-op.
 func cacheInstanceToken(ctx context.Context, apiClient client.ControlPlaneClient, instance *client.Instance) error {
-	// Instances that don't require a token have nothing to cache.
 	if !instance.Secure {
 		return nil
 	}
@@ -932,11 +708,9 @@ func cacheInstanceToken(ctx context.Context, apiClient client.ControlPlaneClient
 
 	var accessToken string
 
-	// E2B backend returns token directly in the instance response
 	if instance.AccessToken != "" {
 		accessToken = instance.AccessToken
 	} else {
-		// Cloud backend needs to call AcquireToken API
 		accessToken, err = apiClient.AcquireToken(ctx, instance.ID)
 		if err != nil {
 			return fmt.Errorf("failed to acquire token: %w", err)

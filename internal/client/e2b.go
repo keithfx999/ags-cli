@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
 // E2BControlPlane implements ControlPlaneClient for E2B API.
@@ -24,12 +25,11 @@ type E2BControlPlane struct {
 
 // NewE2BControlPlane creates a new E2B control plane client
 func NewE2BControlPlane() (*E2BControlPlane, error) {
-	e2bCfg := config.GetE2BConfig()
 	cfg := config.Get()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	return &E2BControlPlane{
 		httpClient: httpClient,
-		apiKey:     e2bCfg.APIKey,
+		apiKey:     config.GetAPIKey(),
 		domain:     cfg.Domain,
 		region:     cfg.Region,
 	}, nil
@@ -92,6 +92,12 @@ func (c *E2BControlPlane) GetTool(ctx context.Context, id string) (*Tool, error)
 // CreateInstance creates a new sandbox instance.
 // The returned Instance contains AccessToken which should be cached for data plane operations.
 func (c *E2BControlPlane) CreateInstance(ctx context.Context, opts *CreateInstanceOptions) (*Instance, error) {
+	if opts.ClientToken != "" {
+		return nil, output.NewUsageError("CLIENT_TOKEN_UNSUPPORTED",
+			"--client-token is not supported by the E2B backend",
+			"Use --backend cloud for client token support.")
+	}
+
 	url := c.getAPIEndpoint() + "/sandboxes"
 
 	templateID := opts.ToolName
@@ -317,16 +323,14 @@ func e2bHTTPError(resp *http.Response) error {
 		Code    any    `json:"code"`
 		Message string `json:"message"`
 	}
+	msg := resp.Status
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Message != "" {
-		if payload.Code != nil {
-			return fmt.Errorf("E2B API returned %s: %s (code: %v)", resp.Status, payload.Message, payload.Code)
-		}
-		return fmt.Errorf("E2B API returned %s: %s", resp.Status, payload.Message)
+		msg = payload.Message
+	} else if len(body) > 0 {
+		msg = string(body)
 	}
-	if len(body) > 0 {
-		return fmt.Errorf("E2B API returned %s: %s", resp.Status, string(body))
-	}
-	return fmt.Errorf("E2B API returned %s", resp.Status)
+
+	return classifyHTTPStatus(resp.StatusCode, fmt.Sprintf("E2B API: %s", msg))
 }
 
 // ========== API Key Operations (not supported by E2B) ==========

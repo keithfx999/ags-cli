@@ -17,8 +17,8 @@ type CloudToolClient struct {
 }
 
 // NewCloudToolClient creates a new Cloud Tool client
-func NewCloudToolClient(cfg *config.Config, cloudCfg *config.CloudConfig) (*CloudToolClient, error) {
-	credential := common.NewCredential(cloudCfg.SecretID, cloudCfg.SecretKey)
+func NewCloudToolClient(cfg *config.Config, secretID, secretKey string) (*CloudToolClient, error) {
+	credential := common.NewCredential(secretID, secretKey)
 
 	cpf := profile.NewClientProfile()
 	cpf.HttpProfile.Endpoint = cfg.ControlPlaneEndpoint()
@@ -117,7 +117,7 @@ func (c *CloudToolClient) ListTools(ctx context.Context, opts *ListToolsOptions)
 
 	response, err := c.client.DescribeSandboxToolListWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	tools := make([]Tool, 0, len(response.Response.SandboxToolSet))
@@ -151,12 +151,14 @@ func (c *CloudToolClient) ListTools(ctx context.Context, opts *ListToolsOptions)
 			Name:          derefString(t.ToolName),
 			Description:   derefString(t.Description),
 			Type:          derefString(t.ToolType),
+			Status:        derefString(t.Status),
 			NetworkMode:   networkMode,
 			VPCConfig:     vpcConfig,
 			Tags:          tags,
 			RoleArn:       derefString(t.RoleArn),
 			StorageMounts: storageMounts,
 			CreatedAt:     derefString(t.CreateTime),
+			UpdatedAt:     derefString(t.UpdateTime),
 		})
 	}
 
@@ -237,9 +239,13 @@ func (c *CloudToolClient) CreateTool(ctx context.Context, opts *CreateToolOption
 		request.StorageMounts = toAPIStorageMounts(opts.StorageMounts)
 	}
 
+	if opts.ClientToken != "" {
+		request.ClientToken = &opts.ClientToken
+	}
+
 	response, err := c.client.CreateSandboxToolWithContext(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create tool: %w", err)
+		return nil, ClassifyCloudError(err)
 	}
 
 	return &Tool{
@@ -400,7 +406,7 @@ func (c *CloudToolClient) UpdateTool(ctx context.Context, opts *UpdateToolOption
 
 	_, err := c.client.UpdateSandboxToolWithContext(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to update tool: %w", err)
+		return ClassifyCloudError(err)
 	}
 
 	return nil
@@ -413,7 +419,7 @@ func (c *CloudToolClient) DeleteTool(ctx context.Context, id string) error {
 
 	_, err := c.client.DeleteSandboxToolWithContext(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to delete tool: %w", err)
+		return ClassifyCloudError(err)
 	}
 
 	return nil
