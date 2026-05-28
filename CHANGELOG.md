@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## Unreleased
 
 ### Breaking Changes
 - `--jq` now applies expressions to the `Data` field directly instead of the

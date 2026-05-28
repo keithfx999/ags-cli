@@ -12,9 +12,9 @@ import (
 // FlagHelpDetail holds extended help information for one flag, shown when the
 // user types --<flag> --help.
 type FlagHelpDetail struct {
-	Name        string `json:"Name"`
-	Type        string `json:"Type"`
-	Description string `json:"Description"`
+	Name         string `json:"Name"`
+	Type         string `json:"Type"`
+	Description  string `json:"Description"`
 	DetailedHelp string `json:"DetailedHelp"`
 }
 
