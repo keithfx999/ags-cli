@@ -44,8 +44,8 @@ Create sandbox instances, execute code, manage tools and API keys.
 Run 'agr doctor' to diagnose configuration issues.
 
 Examples:
-  tool_id=$(agr tool create --tool-name "quickstart-code-$(date +%s)-$$" --tool-type code-interpreter --network-configuration '{"NetworkMode":"SANDBOX"}' -o json --jq '.Data.ToolId')
-  instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId')
+  tool_id=$(agr tool create --tool-name "quickstart-code-$(date +%s)-$$" --tool-type code-interpreter --network-configuration '{"NetworkMode":"SANDBOX"}' -o json --jq '.ToolId')
+  instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.InstanceId')
   agr instance code run "$instance_id" -c "print('Hello, World!')"
   agr instance delete "$instance_id" --ignore-not-found
   agr tool delete "$tool_id"
@@ -97,7 +97,7 @@ func init() {
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if jqExpr != "" && !hasRawOutputFlag("json") {
-			return output.NewUsageError("JQ_REQUIRES_JSON", "--jq can only be used with explicit -o json", "Add -o json, for example: agr status -o json --jq '.Data'.")
+			return output.NewUsageError("JQ_REQUIRES_JSON", "--jq can only be used with explicit -o json", "Add -o json, for example: agr status -o json --jq '.ConfigLoaded'.")
 		}
 		if generateSkeleton && !supportsSkeleton(canonicalCommandID(cmd)) {
 			return output.NewUsageError("SKELETON_UNSUPPORTED", "--generate-skeleton is only supported for request-based commands", "Run: agr schema -o json")
