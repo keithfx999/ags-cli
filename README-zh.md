@@ -79,6 +79,12 @@ make build
 sudo cp agr /usr/local/bin/agr
 ```
 
+或安装到 `$GOPATH/bin`（带版本元信息）：
+
+```bash
+make go-install
+```
+
 ### 使用 `go install`
 
 ```bash
@@ -92,6 +98,9 @@ agr version
 ```
 
 安装后的命令名为 `agr`。
+
+> **注意：** 通过 `go install @tag` 安装的二进制在 `agr version` 中不会显示 commit
+> hash 和构建时间。若需完整版本信息，请使用 `make build` 或下载预编译包。
 
 ## 前置条件
 
