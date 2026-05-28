@@ -80,6 +80,7 @@ type FlagSchema struct {
 	Shorthand        string   `json:"Shorthand,omitempty"`
 	Type             string   `json:"Type"`
 	Description      string   `json:"Description,omitempty"`
+	DetailedHelp     string   `json:"DetailedHelp,omitempty"`
 	Format           string   `json:"Format,omitempty"`
 	Default          string   `json:"Default,omitempty"`
 	Examples         []string `json:"Examples,omitempty"`
@@ -169,6 +170,9 @@ func renderSchemaText(w io.Writer, s CommandSchema) {
 			fmt.Fprintf(w, "  --%s%s  %s\n", f.Name, sh, f.Type)
 			if f.Description != "" {
 				fmt.Fprintf(w, "      %s\n", f.Description)
+			}
+			if f.DetailedHelp != "" {
+				fmt.Fprintf(w, "      (Use --%s --help for detailed help)\n", f.Name)
 			}
 			if f.Format != "" {
 				fmt.Fprintf(w, "      Format: %s\n", f.Format)
@@ -461,10 +465,11 @@ func commandFlagsToSchema(flags []command.FlagSpec) []FlagSchema {
 			continue
 		}
 		schema := FlagSchema{
-			Name:        flag.Name,
-			Shorthand:   flag.Shorthand,
-			Type:        schemaFlagType(flag.Type),
-			Description: flag.Usage,
+			Name:         flag.Name,
+			Shorthand:    flag.Shorthand,
+			Type:         schemaFlagType(flag.Type),
+			Description:  flag.Usage,
+			DetailedHelp: flag.DetailedHelp,
 		}
 		if flag.Default != nil {
 			schema.Default = fmt.Sprint(flag.Default)
@@ -577,6 +582,9 @@ func mergeFlagSchema(base, override FlagSchema) FlagSchema {
 	}
 	if override.Description != "" {
 		merged.Description = override.Description
+	}
+	if override.DetailedHelp != "" {
+		merged.DetailedHelp = override.DetailedHelp
 	}
 	if override.Format != "" {
 		merged.Format = override.Format
@@ -785,6 +793,9 @@ func ensureSchemaFlag(schema *CommandSchema, flag FlagSchema) {
 			}
 			if existing.Description == "" {
 				existing.Description = flag.Description
+			}
+			if existing.DetailedHelp == "" {
+				existing.DetailedHelp = flag.DetailedHelp
 			}
 			if existing.Shorthand == "" {
 				existing.Shorthand = flag.Shorthand

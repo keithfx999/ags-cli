@@ -428,7 +428,14 @@ func registerFlags(flags *pflag.FlagSet, specs []command.FlagSpec) error {
 			}
 			f.Hidden = spec.Hidden
 			f.Deprecated = spec.Deprecated
-			f.Annotations = spec.Annotations
+			annotations := spec.Annotations
+			if spec.DetailedHelp != "" {
+				if annotations == nil {
+					annotations = map[string][]string{}
+				}
+				annotations["agr.detailed_help"] = []string{spec.DetailedHelp}
+			}
+			f.Annotations = annotations
 		}
 	}
 	return nil
