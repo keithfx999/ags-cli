@@ -83,6 +83,12 @@ func init() {
 			fmt.Fprintln(os.Stderr, "Error: -o ndjson is not supported with --help")
 			os.Exit(output.ExitUsage)
 		}
+
+		// Per-flag detailed help: detect --<flag> --help pattern
+		if tryFlagHelp(cmd) {
+			return
+		}
+
 		if wantJSON {
 			cmdID := canonicalCommandID(cmd)
 			if cmdID == "" {

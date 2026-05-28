@@ -115,6 +115,10 @@ type FlagSpec struct {
 	Generated   bool
 	Deprecated  string
 	Annotations map[string][]string
+	// DetailedHelp provides extended help text for this flag, shown when
+	// the user invokes --<flag> --help. It may include supported values,
+	// format descriptions, and examples.
+	DetailedHelp string
 }
 
 // OutputSpec describes the canonical data shape and effects a command returns.

@@ -21,6 +21,15 @@ func Module() command.Module {
 		DataType:    "InstanceListData",
 		Description: "Instance list with normalized items and pagination metadata.",
 	}
+	// Add detailed help for complex flags.
+	for i := range spec.Flags {
+		switch spec.Flags[i].Name {
+		case "filters":
+			spec.Flags[i].DetailedHelp = filtersDetailedHelp
+		case "instance-ids":
+			spec.Flags[i].DetailedHelp = instanceIdsDetailedHelp
+		}
+	}
 	return command.Module{
 		Descriptor: command.Descriptor{
 			Spec: spec,
@@ -164,3 +173,46 @@ func renderInstanceList(w io.Writer, response *ags.DescribeSandboxInstanceListRe
 	}
 	instanceview.PrintTableWithPagination(w, headers, rows, len(response.InstanceSet), instanceview.DerefInt64(response.TotalCount))
 }
+
+// filtersDetailedHelp is the extended help text for the --filters flag.
+const filtersDetailedHelp = `The --filters flag accepts a JSON array of filter objects. Each filter
+narrows the result set by matching a resource attribute against one or
+more values. When multiple filters are supplied, they are combined with
+AND logic; values within a single filter use OR logic.
+
+Format:
+  [{"Name": "<field>", "Values": ["<value1>", "<value2>", ...]}]
+
+Supported filter names for instance list:
+  Status      - Filter by instance status
+  ToolName    - Filter by the tool name used to create the instance
+  ToolId      - Filter by the tool ID
+
+Supported values for Status:
+  STARTING, RUNNING, STOPPING, STOPPED, STOP_FAILED, FAILED
+
+Input sources:
+  Inline JSON:  --filters '[{"Name":"Status","Values":["RUNNING"]}]'
+  File:         --filters @filters.json
+  Stdin:        echo '[...]' | agr instance list --filters -
+
+Examples:
+  # List only running instances
+  agr instance list --filters '[{"Name":"Status","Values":["RUNNING"]}]'
+
+  # List instances in multiple states (OR within one filter)
+  agr instance list --filters '[{"Name":"Status","Values":["RUNNING","STARTING"]}]'
+
+  # Combine filters (AND logic)
+  agr instance list --filters '[{"Name":"Status","Values":["RUNNING"]},{"Name":"ToolName","Values":["my-tool"]}]'`
+
+// instanceIdsDetailedHelp is the extended help text for the --instance-ids flag.
+const instanceIdsDetailedHelp = `The --instance-ids flag filters results to specific instance IDs.
+Pass one or more instance IDs as a repeatable flag.
+
+Format:
+  --instance-ids <id1> --instance-ids <id2>
+
+Examples:
+  agr instance list --instance-ids ins-abc123
+  agr instance list --instance-ids ins-abc123 --instance-ids ins-def456`
