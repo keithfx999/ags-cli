@@ -15,7 +15,7 @@ func APIDescriptor() apicli.APIDescriptor {
 			Use:          "create",
 			Short:        "Create a new sandbox tool",
 			Long:         "Create a new sandbox tool template.\n\nTool names must be unique within the current AppId.\n\nFor a minimal code-interpreter tool, provide a unique name, `--tool-type code-interpreter`, and a network configuration such as `{\"NetworkMode\":\"SANDBOX\"}`.",
-			Examples:     []string{"tool_name=\"my-tool-$(date +%s)-$$\"", "agr tool create --tool-name \"$tool_name\" --tool-type code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}'", "agr tool create --tool-name \"$tool_name\" --tool-type code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}' -o json --jq '.Data.ToolId'"},
+			Examples:     []string{"tool_name=\"my-tool-$(date +%s)-$$\"", "agr tool create --tool-name \"$tool_name\" --tool-type code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}'", "agr tool create --tool-name \"$tool_name\" --tool-type code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}' -o json --jq '.ToolId'"},
 			SupportsJSON: true,
 			Output: command.OutputSpec{
 				DataType:    "CreateSandboxToolResponse",

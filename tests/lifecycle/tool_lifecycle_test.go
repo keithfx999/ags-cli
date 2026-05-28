@@ -49,7 +49,7 @@ var _ = Describe("Tool CLI lifecycle", func() {
 		Expect(stringField(getEnv.Data, "ToolName")).To(Equal(toolName))
 		Expect(stringField(getEnv.Data, "ToolType")).To(Equal("code-interpreter"))
 
-		jq := cli.Run(context.Background(), "--output", "json", "--jq", ".Data.ToolId", "tool", "get", toolID)
+		jq := cli.Run(context.Background(), "--output", "json", "--jq", ".ToolId", "tool", "get", toolID)
 		jq.ExpectSuccess()
 		Expect(strings.TrimSpace(jq.Stdout)).To(Equal(toolID), jq.Diagnostics())
 		Expect(jq.Stderr).To(BeEmpty(), jq.Diagnostics())

@@ -350,7 +350,7 @@ func fixForCLIUsageCode(code string) []string {
 	case "INVALID_SHELL":
 		return []string{"Use one of: bash, zsh, fish, powershell."}
 	case "JQ_REQUIRES_JSON":
-		return []string{"Add -o json, for example: agr status -o json --jq '.Data'."}
+		return []string{"Add -o json, for example: agr status -o json --jq '.ConfigLoaded'."}
 	case "SKELETON_UNSUPPORTED":
 		return []string{"Use --generate-skeleton only on request-based commands.", "agr schema -o json"}
 	case "NDJSON_REQUIRES_STREAM":

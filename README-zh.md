@@ -136,9 +136,9 @@ tool_id=$(agr tool create \
   --tool-name "$tool_name" \
   --tool-type code-interpreter \
   --network-configuration '{"NetworkMode":"SANDBOX"}' \
-  -o json --jq '.Data.ToolId')
+  -o json --jq '.ToolId')
 
-instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId')
+instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.InstanceId')
 agr instance code run "$instance_id" -c "print('Hello, World!')"
 agr instance delete "$instance_id" --ignore-not-found
 agr tool delete "$tool_id" || true
@@ -252,10 +252,10 @@ agr completion bash|zsh|fish|powershell
 示例：
 
 ```bash
-agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId'
-agr instance list -o json --jq '.Data.Items[].InstanceId'
-agr status -o json --jq '.Data.Region'
-agr schema -o json --jq '.Data.ExitCodes'
+agr instance create --tool-id "$tool_id" -o json --jq '.InstanceId'
+agr instance list -o json --jq '.Items[].InstanceId'
+agr status -o json --jq '.Region'
+agr schema -o json --jq '.ExitCodes'
 ```
 
 `--jq` 必须与 `-o json` 一起使用。JSON envelope 使用 `agr.v1`，
@@ -284,7 +284,7 @@ agr instance exec "$id" --stream -o ndjson -- tail -f app.log
 
 `instance exec` 与 `instance mobile adb` 也可能透传下游进程的退出码（`0-255` 范围）。
 
-完整列表见 `agr schema -o json --jq '.Data.ExitCodes'`。
+完整列表见 `agr schema -o json --jq '.ExitCodes'`。
 
 ## 全局 flag
 
