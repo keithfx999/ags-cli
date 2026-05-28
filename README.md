@@ -79,6 +79,12 @@ make build
 sudo cp agr /usr/local/bin/agr
 ```
 
+Or install to `$GOPATH/bin` with version metadata:
+
+```bash
+make go-install
+```
+
 ### Using `go install`
 
 ```bash
@@ -92,6 +98,10 @@ agr version
 ```
 
 The installed command name is `agr`.
+
+> **Note:** Binaries installed via `go install @tag` will not display the commit
+> hash or build timestamp in `agr version` output. Use `make build` or download
+> a pre-built release binary for full version information.
 
 ## Prerequisites
 
