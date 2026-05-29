@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Fixed
+- `agr instance login` now reports PTY/envd data-plane session failures
+  explicitly instead of collapsing them into a generic internal error.
 - `agr version` now extracts commit hash and build timestamp from Go
   module pseudo-versions when VCS build info is unavailable (e.g. binaries
   installed via `go install @latest`).
