@@ -308,6 +308,9 @@ func renderExecuteError(cmd *cobra.Command, err error) {
 	}
 	failure := withIdempotencyHint(commandIDForJSONError(cmd, os.Args[1:]), cliErr.Failure)
 	fmt.Fprintf(ios.ErrOut, "Error: %s (%s)\n", failure.Message, failure.Code)
+	if requestID := failureRequestID(failure); requestID != "" {
+		fmt.Fprintf(ios.ErrOut, "RequestId: %s\n", requestID)
+	}
 	if failure.Hint != "" {
 		fmt.Fprintf(ios.ErrOut, "Hint: %s\n", failure.Hint)
 	}
@@ -315,6 +318,17 @@ func renderExecuteError(cmd *cobra.Command, err error) {
 		fmt.Fprintln(ios.ErrOut, "Retryable: yes")
 	}
 	os.Exit(cliErr.ExitCode)
+}
+
+func failureRequestID(failure *output.Failure) string {
+	if failure == nil || failure.Details == nil {
+		return ""
+	}
+	requestID, ok := failure.Details["RequestId"].(string)
+	if !ok {
+		return ""
+	}
+	return requestID
 }
 
 func renderJSONSchemaEnvelope(commandID string, cmd *cobra.Command, args []string) error {
