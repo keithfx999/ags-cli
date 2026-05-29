@@ -51,10 +51,10 @@ var _ = Describe("Envelope", func() {
 			Expect(parsed["SchemaVersion"]).To(Equal("agr.v1"))
 		})
 
-		It("applies jq expression to Data field", func() {
+		It("applies jq expression", func() {
 			env := NewSuccessEnvelope("v", map[string]any{"X": 1}, "cloud", 0)
 			var buf bytes.Buffer
-			Expect(RenderEnvelope(&buf, env, ".X")).To(Succeed())
+			Expect(RenderEnvelope(&buf, env, ".Data.X")).To(Succeed())
 			Expect(buf.String()).To(ContainSubstring("1"))
 		})
 
@@ -70,7 +70,7 @@ var _ = Describe("Envelope", func() {
 				"ExitCodes": map[string]string{"0": "success"},
 			}, "cloud", 0)
 			var buf bytes.Buffer
-			err := RenderEnvelope(&buf, env, ".ExitCodes[0].Code")
+			err := RenderEnvelope(&buf, env, ".Data.ExitCodes[0].Code")
 			Expect(err).To(HaveOccurred())
 			Expect(buf.String()).To(BeEmpty())
 		})
@@ -78,33 +78,8 @@ var _ = Describe("Envelope", func() {
 		It("outputs string jq results as raw text", func() {
 			env := NewSuccessEnvelope("v", map[string]any{"Name": "hello"}, "cloud", 0)
 			var buf bytes.Buffer
-			Expect(RenderEnvelope(&buf, env, ".Name")).To(Succeed())
+			Expect(RenderEnvelope(&buf, env, ".Data.Name")).To(Succeed())
 			Expect(buf.String()).To(Equal("hello\n"))
-		})
-
-		It("extracts nested fields from list-style Data", func() {
-			env := NewSuccessEnvelope("v", map[string]any{
-				"Items": []any{
-					map[string]any{"InstanceId": "ins-001"},
-					map[string]any{"InstanceId": "ins-002"},
-				},
-				"Pagination": map[string]any{"Total": 2},
-			}, "cloud", 0)
-			var buf bytes.Buffer
-			Expect(RenderEnvelope(&buf, env, ".Items[].InstanceId")).To(Succeed())
-			Expect(buf.String()).To(Equal("ins-001\nins-002\n"))
-		})
-
-		It("extracts single item from list-style Data", func() {
-			env := NewSuccessEnvelope("v", map[string]any{
-				"Items": []any{
-					map[string]any{"InstanceId": "ins-001"},
-				},
-				"Pagination": map[string]any{"Total": 1},
-			}, "cloud", 0)
-			var buf bytes.Buffer
-			Expect(RenderEnvelope(&buf, env, ".Items[0].InstanceId")).To(Succeed())
-			Expect(buf.String()).To(Equal("ins-001\n"))
 		})
 	})
 })

@@ -137,9 +137,9 @@ tool_id=$(agr tool create \
   --tool-name "$tool_name" \
   --tool-type code-interpreter \
   --network-configuration '{"NetworkMode":"SANDBOX"}' \
-  -o json --jq '.ToolId')
+  -o json --jq '.Data.ToolId')
 
-instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.InstanceId')
+instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId')
 agr instance code run "$instance_id" -c "print('Hello, World!')"
 agr instance delete "$instance_id" --ignore-not-found
 agr tool delete "$tool_id" || true
@@ -254,10 +254,10 @@ Commands that support `-o json` return one `agr.v1` envelope on stdout:
 Examples:
 
 ```bash
-agr instance create --tool-id "$tool_id" -o json --jq '.InstanceId'
-agr instance list -o json --jq '.Items[].InstanceId'
-agr status -o json --jq '.Region'
-agr schema -o json --jq '.ExitCodes'
+agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId'
+agr instance list -o json --jq '.Data.Items[].InstanceId'
+agr status -o json --jq '.Data.Region'
+agr schema -o json --jq '.Data.ExitCodes'
 ```
 
 `--jq` must be used with `-o json`.
@@ -285,7 +285,7 @@ Each stdout line is one `agr.events.v1` JSON event.
 
 `instance exec` and `instance mobile adb` may also pass through downstream process exit codes in the range `0-255`.
 
-See `agr schema -o json --jq '.ExitCodes'` for the full list.
+See `agr schema -o json --jq '.Data.ExitCodes'` for the full list.
 
 ## Global Flags
 

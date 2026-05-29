@@ -46,12 +46,12 @@ var _ = Describe("CLI configuration", Ordered, func() {
 	})
 
 	It("supports --jq only with explicit JSON output and keeps failures on stderr", func() {
-		good := cli.Run(context.Background(), "--output", "json", "--jq", ".ConfigLoaded", "status")
+		good := cli.Run(context.Background(), "--output", "json", "--jq", ".Data.ConfigLoaded", "status")
 		good.ExpectSuccess()
 		Expect(strings.TrimSpace(good.Stdout)).To(Equal("true"), good.Diagnostics())
 		Expect(good.Stderr).To(BeEmpty(), good.Diagnostics())
 
-		bad := cli.Run(context.Background(), "--jq", ".ConfigLoaded", "status")
+		bad := cli.Run(context.Background(), "--jq", ".Data.ConfigLoaded", "status")
 		bad.ExpectExit(2)
 		Expect(bad.Stdout).To(BeEmpty(), bad.Diagnostics())
 		Expect(bad.Stderr).To(ContainSubstring("--jq can only be used with explicit -o json"), bad.Diagnostics())

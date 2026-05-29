@@ -2,18 +2,6 @@
 
 本项目的所有重要更改都将记录在此文件中。
 
-## [Unreleased]
-
-### 破坏性变更
-- `--jq` 表达式现在直接作用于 `Data` 字段，而非整个 envelope。已有
-  `.Data.X` 形式的表达式需简化为 `.X`。例如：`--jq '.Data.InstanceId'`
-  改为 `--jq '.InstanceId'`，`--jq '.Data.Items[].InstanceId'` 改为
-  `--jq '.Items[].InstanceId'`。
-
-### 修复
-- `agr instance list -o json --jq` 不再需要用户手动跳过 envelope 结构；
-  jq 表达式现在直接作用于命令的数据负载，与 gh、aws 等 CLI 的过滤行为一致。
-
 ## [0.5.1] - 2026-05-29
 
 ### 破坏性变更

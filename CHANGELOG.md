@@ -4,16 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Breaking Changes
-- `--jq` now applies expressions to the `Data` field directly instead of the
-  full envelope. Existing expressions using `.Data.X` should be simplified to
-  `.X`. For example: `--jq '.Data.InstanceId'` becomes `--jq '.InstanceId'`,
-  and `--jq '.Data.Items[].InstanceId'` becomes `--jq '.Items[].InstanceId'`.
-
 ### Fixed
-- `agr instance list -o json --jq` no longer requires users to navigate the
-  envelope wrapper; jq expressions now operate on the command's data payload
-  directly, consistent with how other CLIs (gh, aws) apply query filters.
 - `agr version` now extracts commit hash and build timestamp from Go
   module pseudo-versions when VCS build info is unavailable (e.g. binaries
   installed via `go install @latest`).

@@ -11,10 +11,7 @@ import (
 )
 
 // RenderEnvelope writes an Envelope to w as JSON. If jqExpr is non-empty,
-// the expression is applied to the envelope's Data field and only the filtered
-// result is written. This lets users write --jq ".InstanceId" rather than
-// --jq ".Data.InstanceId", keeping expressions focused on domain data.
-// For list commands, use --jq ".Items[].InstanceId" to iterate items.
+// the expression is applied and only the filtered result is written.
 func RenderEnvelope(w io.Writer, env *Envelope, jqExpr string) error {
 	encoder := json.NewEncoder(w)
 
@@ -22,9 +19,9 @@ func RenderEnvelope(w io.Writer, env *Envelope, jqExpr string) error {
 		return encoder.Encode(env)
 	}
 
-	data, err := json.Marshal(env.Data)
+	data, err := json.Marshal(env)
 	if err != nil {
-		return fmt.Errorf("failed to marshal envelope data: %w", err)
+		return fmt.Errorf("failed to marshal envelope: %w", err)
 	}
 
 	return applyJQ(w, data, jqExpr)
