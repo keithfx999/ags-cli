@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Fixed
+- Service-side TencentCloud errors now include `RequestId` alongside
+  `Code` and `Message` in CLI error output.
 - `agr instance login` now reports PTY/envd data-plane session failures
   explicitly instead of collapsing them into a generic internal error.
 - `agr version` now extracts commit hash and build timestamp from Go
