@@ -2,9 +2,11 @@ package login
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/cli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
@@ -134,9 +136,41 @@ func runLogin(ctx context.Context, req command.Request, cp ControlPlane, rt Runt
 	cfg := config.Get()
 	session := rt.NewSession(accessToken, cfg.DataPlaneRegionDomain())
 	if err := session.Connect(ctx, instanceID, resolveUser(stringFlag(req, "user"))); err != nil {
-		return nil, err
+		return nil, classifySessionError(err)
 	}
 	return &command.Result{StreamDone: true}, nil
+}
+
+func classifySessionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "PTY session exited with code") {
+		return output.NewRemoteExecutionError(
+			"PTY_SESSION_EXITED",
+			msg,
+			"The remote shell exited with a non-zero status.",
+		)
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		code := strings.ToUpper(strings.ReplaceAll(connectErr.Code().String(), " ", "_"))
+		return output.NewCLIError(&output.Failure{
+			Code:    "DATA_PLANE_" + code,
+			Kind:    output.KindGenericError,
+			Message: "data-plane PTY session failed: " + connectErr.Error(),
+			Hint:    "This error came from the envd data-plane session. Rerun with --debug and share stderr diagnostics if it persists.",
+		})
+	}
+
+	return output.NewCLIError(&output.Failure{
+		Code:    "DATA_PLANE_SESSION_ERROR",
+		Kind:    output.KindGenericError,
+		Message: "data-plane PTY session failed: " + msg,
+		Hint:    "Rerun with --debug and share stderr diagnostics if the problem persists.",
+	})
 }
 
 func validateRunning(instanceID string, instance *ags.SandboxInstance) error {
