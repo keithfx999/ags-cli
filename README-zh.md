@@ -242,7 +242,7 @@ agr instance browser vnc <id>    显示 VNC URL
 agr instance proxy <id> PORT     端口转发到 localhost
 agr instance mobile ...          Mobile ADB 操作
 
-agr tool list/create/get/update/delete
+agr tool list/create/fork/get/update/delete
 agr apikey create/list/delete
 agr pre-cache-image-task create|get
 agr completion bash|zsh|fish|powershell

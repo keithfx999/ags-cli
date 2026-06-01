@@ -32,6 +32,7 @@ import (
 	precacheimagetaskget "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/precacheimagetask/get"
 	toolcreate "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/create"
 	tooldelete "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/delete"
+	toolfork "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/fork"
 	toolget "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/get"
 	toollist "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/list"
 	toolupdate "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/tool/update"
@@ -68,6 +69,7 @@ func Registry() (*command.Registry, error) {
 		precacheimagetaskget.Module(),
 		toolcreate.Module(),
 		tooldelete.Module(),
+		toolfork.Module(),
 		toolget.Module(),
 		toollist.Module(),
 		toolupdate.Module(),
