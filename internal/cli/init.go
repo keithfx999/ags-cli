@@ -35,6 +35,10 @@ func initFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 	if skey == "" {
 		skey = os.Getenv("TENCENTCLOUD_SECRET_KEY")
 	}
+	sessionToken := tokenFlag
+	if sessionToken == "" {
+		sessionToken = os.Getenv("TENCENTCLOUD_TOKEN")
+	}
 	if sid == "" || skey == "" {
 		return nil, output.NewUsageError("MISSING_CLOUD_CREDENTIALS", "cloud credentials are required", "Run: agr init --secret-id <id> --secret-key <key>")
 	}
@@ -52,7 +56,11 @@ func initFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 		return nil, output.NewUsageError("CONFIG_INIT_FAILED", err.Error(), "Check that the config directory is writable.")
 	}
 
-	content := fmt.Sprintf("output = \"text\"\nregion = \"ap-guangzhou\"\ndomain = \"tencentags.com\"\ncloud_endpoint = \"ags.tencentcloudapi.com\"\n\n[auth]\nsecret_id = %q\nsecret_key = %q\n\n[sandbox]\ndefault_user = \"user\"\n", sid, skey)
+	content := fmt.Sprintf("output = \"text\"\nregion = \"ap-guangzhou\"\ndomain = \"tencentags.com\"\ncloud_endpoint = \"ags.tencentcloudapi.com\"\n\n[auth]\nsecret_id = %q\nsecret_key = %q\n", sid, skey)
+	if sessionToken != "" {
+		content += fmt.Sprintf("token = %q\n", sessionToken)
+	}
+	content += "\n[sandbox]\ndefault_user = \"user\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return nil, output.NewUsageError("CONFIG_INIT_FAILED", err.Error(), "Check that the config file is writable.")
 	}
@@ -64,6 +72,7 @@ func initFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 		"Auth": map[string]any{
 			"SecretId":  map[string]any{"Present": true, "Source": "config auth.secret_id"},
 			"SecretKey": map[string]any{"Present": true, "Source": "config auth.secret_key"},
+			"Token":     map[string]any{"Present": sessionToken != "", "Source": "config auth.token"},
 		},
 		"Written": true,
 	}
@@ -71,6 +80,9 @@ func initFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 		fmt.Fprintf(w, "Config initialized: %s\n", path)
 		fmt.Fprintln(w, "Secret ID:  present")
 		fmt.Fprintln(w, "Secret Key: present")
+		if sessionToken != "" {
+			fmt.Fprintf(w, "Token:      %s\n", maskCredential(sessionToken))
+		}
 		fmt.Fprintln(w, "Next: run 'agr status' or 'agr doctor'.")
 	}), nil
 }

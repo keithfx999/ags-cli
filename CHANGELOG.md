@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
   installed via `go install @latest`).
 
 ### Added
+- Tencent Cloud STS session tokens are now supported via `--token`,
+  `TENCENTCLOUD_TOKEN`, and `[auth].token` for temporary AK/SK credentials.
 - `agr instance debug <tool-id>` creates a debug tool from an existing
   sandbox tool by switching the startup command to `/envd` and adding the
   envd image mount.

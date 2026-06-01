@@ -107,7 +107,7 @@ The installed command name is `agr`.
 
 1. A [Tencent Cloud](https://cloud.tencent.com/) account
 2. AGR (Agent Runtime) service enabled
-3. API credentials (SecretID / SecretKey) — obtain from [CAM Console](https://console.cloud.tencent.com/cam/capi)
+3. API credentials (SecretID / SecretKey) — obtain long-term credentials from [CAM Console](https://console.cloud.tencent.com/cam/capi), or use temporary STS credentials with a session token.
 
 ## Initialize CLI credentials
 
@@ -121,6 +121,21 @@ agr init \
 ```
 
 `agr init` only writes local CLI configuration under `~/.agr/config.toml`; it does not create remote resources or modify the current project directory.
+
+For temporary STS credentials, provide the full TmpSecretId, TmpSecretKey,
+and token triplet. Prefer environment variables in CI/CD so the short-lived
+token is not written to disk:
+
+```bash
+export TENCENTCLOUD_SECRET_ID="tmp-secret-id"
+export TENCENTCLOUD_SECRET_KEY="tmp-secret-key"
+export TENCENTCLOUD_TOKEN="tmp-session-token"
+```
+
+You can also pass `--token` on any command or persist it with
+`agr config set token=<token>` / `agr init --token <token>`. Expired
+tokens are reported as authentication failures; refresh the token outside
+the CLI and retry.
 
 ## Quick Start
 
@@ -314,12 +329,13 @@ See `agr schema -o json --jq '.Data.ExitCodes'` for the full list.
 --domain          Data-plane domain (default: tencentags.com)
 --secret-id       Tencent Cloud SecretID
 --secret-key      Tencent Cloud SecretKey
+--token           Tencent Cloud STS session token
 --non-interactive Disable interactive behavior
 --no-color        Disable ANSI color
 --debug           Write debug diagnostics to stderr
 ```
 
-Environment variables: `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `AGR_OUTPUT`, `AGR_REGION`, `AGR_CLOUD_ENDPOINT`, `AGR_DOMAIN`, `AGR_NON_INTERACTIVE`, `AGR_DEBUG`, `NO_COLOR`.
+Environment variables: `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `TENCENTCLOUD_TOKEN`, `AGR_OUTPUT`, `AGR_REGION`, `AGR_CLOUD_ENDPOINT`, `AGR_DOMAIN`, `AGR_NON_INTERACTIVE`, `AGR_DEBUG`, `NO_COLOR`.
 
 `AGR_OUTPUT` is intended for default `text` or `json` output. For streaming, pass `-o ndjson` explicitly with `agr instance code run --stream` or `agr instance exec --stream`.
 

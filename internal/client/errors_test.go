@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,5 +31,18 @@ var _ = Describe("ClassifyCloudError", func() {
 		var cliErr *output.CLIError
 		Expect(errors.As(classified, &cliErr)).To(BeTrue())
 		Expect(cliErr.Failure.Details).To(BeNil())
+	})
+
+	It("adds an STS refresh hint for token auth failures", func() {
+		config.SetToken("session-token")
+		defer config.SetToken("")
+		err := sdkerrors.NewTencentCloudSDKError("AuthFailure.TokenInvalidExpired", "token expired", "req-123")
+
+		classified := ClassifyCloudError(err)
+
+		var cliErr *output.CLIError
+		Expect(errors.As(classified, &cliErr)).To(BeTrue())
+		Expect(cliErr.Failure.Hint).To(ContainSubstring("STS refresh"))
+		Expect(cliErr.Failure.Hint).To(ContainSubstring("retry"))
 	})
 })
