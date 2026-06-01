@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
   installed via `go install @latest`).
 
 ### Added
+- `agr instance list --all` fetches all instance-list pages for the
+  current configured region and includes the region in aggregated output.
 - `make go-install` target installs the binary to `$GOPATH/bin` with
   full version metadata injected via ldflags.
 - Add per-flag detailed help: use `--<flag> --help` (e.g.
