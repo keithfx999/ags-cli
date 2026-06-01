@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	sdkerrors "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 )
@@ -26,7 +27,7 @@ func ClassifyCloudError(err error) error {
 
 	switch {
 	case code == "AuthFailure" || strings.HasPrefix(code, "AuthFailure."):
-		return newCloudCLIError(output.KindAuthOrPermission, code, msg, "Check your credentials (TENCENTCLOUD_SECRET_ID/TENCENTCLOUD_SECRET_KEY).", false, requestID)
+		return newCloudCLIError(output.KindAuthOrPermission, code, msg, authFailureHint(code), false, requestID)
 	case code == "ResourceNotFound.SandboxTool":
 		return newCloudCLIError(output.KindNotFound, code, msg, "Run 'agr tool list' to find available tools.", false, requestID)
 	case code == "ResourceNotFound.SandboxInstance":
@@ -47,6 +48,19 @@ func ClassifyCloudError(err error) error {
 	default:
 		return newCloudCLIError(output.KindGenericError, code, msg, "Run 'agr doctor' to diagnose configuration and connectivity.", false, requestID)
 	}
+}
+
+func authFailureHint(code string) string {
+	if config.GetToken() == "" {
+		return "Check your credentials (TENCENTCLOUD_SECRET_ID/TENCENTCLOUD_SECRET_KEY)."
+	}
+	if code == "AuthFailure.TokenInvalidExpired" ||
+		code == "AuthFailure.TokenFailure" ||
+		code == "AuthFailure.InvalidToken" ||
+		strings.Contains(strings.ToLower(code), "token") {
+		return "Session token may have expired. Run your STS refresh script and retry."
+	}
+	return "Check your STS credentials (TENCENTCLOUD_SECRET_ID/TENCENTCLOUD_SECRET_KEY/TENCENTCLOUD_TOKEN), refresh the session token if needed, and retry."
 }
 
 func newCloudCLIError(kind, code, message, hint string, retryable bool, requestID string) *output.CLIError {

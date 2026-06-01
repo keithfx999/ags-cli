@@ -23,6 +23,7 @@ var (
 	cloudEndpoint    string
 	secretID         string
 	secretKey        string
+	tokenFlag        string
 	jqExpr           string
 	nonInteractive   bool
 	noColor          bool
@@ -138,6 +139,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cloudEndpoint, "cloud-endpoint", "", "Control-plane API endpoint (default: ags.tencentcloudapi.com)")
 	rootCmd.PersistentFlags().StringVar(&secretID, "secret-id", "", "Tencent Cloud SecretID")
 	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "Tencent Cloud SecretKey")
+	rootCmd.PersistentFlags().StringVar(&tokenFlag, "token", "", "Tencent Cloud STS session token")
 	rootCmd.PersistentFlags().StringVar(&jqExpr, "jq", "", "jq expression (only with -o json)")
 	rootCmd.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Disable interactive behaviors")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable ANSI color output")
@@ -251,7 +253,7 @@ func extractHelpTopics(args []string) []string {
 			break
 		}
 		switch arg {
-		case "-o", "--output", "--config", "--secret-id", "--secret-key", "--region", "--domain", "--cloud-endpoint", "--jq":
+		case "-o", "--output", "--config", "--secret-id", "--secret-key", "--token", "--region", "--domain", "--cloud-endpoint", "--jq":
 			skipNext = true
 			continue
 		case "--no-color", "--non-interactive", "-h", "--help":
@@ -259,7 +261,7 @@ func extractHelpTopics(args []string) []string {
 		}
 		if strings.HasPrefix(arg, "-o") || strings.HasPrefix(arg, "--output=") ||
 			strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "--secret-id=") ||
-			strings.HasPrefix(arg, "--secret-key=") || strings.HasPrefix(arg, "--region=") ||
+			strings.HasPrefix(arg, "--secret-key=") || strings.HasPrefix(arg, "--token=") || strings.HasPrefix(arg, "--region=") ||
 			strings.HasPrefix(arg, "--domain=") || strings.HasPrefix(arg, "--cloud-endpoint=") || strings.HasPrefix(arg, "--jq=") {
 			continue
 		}
@@ -411,7 +413,7 @@ func extractCommandTokens(args []string) []string {
 			break
 		}
 		switch arg {
-		case "-o", "--output", "--config", "--secret-id", "--secret-key", "--region", "--domain", "--cloud-endpoint", "--jq":
+		case "-o", "--output", "--config", "--secret-id", "--secret-key", "--token", "--region", "--domain", "--cloud-endpoint", "--jq":
 			skipNext = true
 			continue
 		case "--no-color", "--non-interactive", "-h", "--help", "--version", "-v":
@@ -419,7 +421,7 @@ func extractCommandTokens(args []string) []string {
 		}
 		if strings.HasPrefix(arg, "-o") || strings.HasPrefix(arg, "--output=") ||
 			strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "--secret-id=") ||
-			strings.HasPrefix(arg, "--secret-key=") || strings.HasPrefix(arg, "--region=") ||
+			strings.HasPrefix(arg, "--secret-key=") || strings.HasPrefix(arg, "--token=") || strings.HasPrefix(arg, "--region=") ||
 			strings.HasPrefix(arg, "--domain=") || strings.HasPrefix(arg, "--cloud-endpoint=") || strings.HasPrefix(arg, "--jq=") {
 			continue
 		}
@@ -527,6 +529,11 @@ func applyRawGlobalArgs(args []string) {
 			i++
 		case strings.HasPrefix(arg, "--secret-key="):
 			secretKey = strings.TrimPrefix(arg, "--secret-key=")
+		case arg == "--token" && i+1 < len(args):
+			tokenFlag = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--token="):
+			tokenFlag = strings.TrimPrefix(arg, "--token=")
 		case arg == "--region" && i+1 < len(args):
 			region = args[i+1]
 			i++
@@ -647,6 +654,9 @@ func initConfig() {
 	}
 	if secretKey != "" {
 		config.SetSecretKey(secretKey)
+	}
+	if tokenFlag != "" {
+		config.SetToken(tokenFlag)
 	}
 	if region != "" {
 		config.SetRegion(region)

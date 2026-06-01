@@ -56,6 +56,7 @@ func doctorFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 
 	hasSecretID := cfg.Auth.SecretID != "" || os.Getenv("TENCENTCLOUD_SECRET_ID") != ""
 	hasSecretKey := cfg.Auth.SecretKey != "" || os.Getenv("TENCENTCLOUD_SECRET_KEY") != ""
+	hasToken := cfg.Auth.Token != "" || os.Getenv("TENCENTCLOUD_TOKEN") != ""
 	if hasSecretID {
 		checks = append(checks, DoctorCheck{Name: "SecretId", Status: "ok", Message: "SecretId is configured"})
 	} else {
@@ -77,6 +78,9 @@ func doctorFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 			Hint:    "Run: agr init --secret-id <id> --secret-key <key>",
 			Failure: output.NewAuthError("MISSING_CLOUD_CREDENTIALS", "SecretKey is not configured", "Run: agr init --secret-id <id> --secret-key <key>").Failure,
 		})
+	}
+	if hasToken {
+		checks = append(checks, DoctorCheck{Name: "Token", Status: "ok", Message: "Session token is configured (using STS credentials)"})
 	}
 
 	if _, err := token.NewCache(); err != nil {
