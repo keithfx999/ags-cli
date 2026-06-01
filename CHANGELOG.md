@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
   installed via `go install @latest`).
 
 ### Added
+- `agr instance debug <tool-id>` creates a debug tool from an existing
+  sandbox tool by switching the startup command to `/envd` and adding the
+  envd image mount.
 - `agr instance list --all` fetches all instance-list pages for the
   current configured region and includes the region in aggregated output.
 - `make go-install` target installs the binary to `$GOPATH/bin` with

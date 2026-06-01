@@ -176,6 +176,20 @@ agr instance exec \
 `Data.ExecutionContext.TemporarySandboxInstance` 与
 `Data.ExecutionContext.Cleanup`，方便脚本检查工作流。
 
+## Debug Tool 创建
+
+使用 `agr instance debug <tool-id>` 基于现有工具创建一份 Debug
+Tool。新工具会保留源工具配置，把启动命令改为 `/envd`，并将
+`ccr.ccs.tencentyun.com/ags-image/envd:v0.5.14` 镜像内的
+`/usr/bin/envd` 挂载到 `/envd`。源工具必须配置 `RoleArn`，因为
+镜像类型的存储挂载依赖该角色。
+
+```bash
+debug_tool_id=$(agr instance debug "$tool_id" \
+  --debug-tool-name "my-tool-debug" \
+  -o json --jq '.Data.ToolId')
+```
+
 ## 控制面端点与数据面域名
 
 | Flag | 默认值 | 作用对象 |
@@ -217,6 +231,7 @@ agr instance update <id>         更新 timeout / metadata
 agr instance pause <id>          暂停实例
 agr instance resume <id>         恢复实例
 agr instance delete <id>         删除实例
+agr instance debug <tool-id>     基于工具创建 Debug Tool
 
 agr instance code run <id>       在实例中执行代码
 agr instance exec <id> -- CMD    在实例中执行 shell 命令
