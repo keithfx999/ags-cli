@@ -106,7 +106,12 @@
           "description": "Filter by instance IDs.",
           "inputs": {
             "instance-ids": {
-              "usage": "Filter by instance IDs"
+              "usage": "Filter by instance IDs",
+              "format": "--instance-ids <id1> --instance-ids <id2>",
+              "examples": [
+                "agr instance list --instance-ids ins-abc123",
+                "agr instance list --instance-ids ins-abc123 --instance-ids ins-def456"
+              ]
             }
           }
         },
@@ -114,7 +119,18 @@
           "description": "Additional list filters.",
           "inputs": {
             "filters": {
-              "usage": "Additional filters as JSON array, @file, or - for stdin"
+              "usage": "Additional filters as JSON array, @file, or - for stdin",
+              "format": "[{\"Name\":\"<field>\",\"Values\":[\"<value1>\",\"<value2>\"]}]",
+              "values": [
+                "Status: STARTING, RUNNING, STOPPING, STOPPED, STOP_FAILED, FAILED",
+                "ToolName: tool name used to create the instance",
+                "ToolId: tool ID"
+              ],
+              "examples": [
+                "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]}]'",
+                "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\",\"STARTING\"]}]'",
+                "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]},{\"Name\":\"ToolName\",\"Values\":[\"my-tool\"]}]'"
+              ]
             }
           }
         },
@@ -212,7 +228,18 @@
           "description": "Network configuration.",
           "inputs": {
             "network-configuration": {
-              "usage": "NetworkConfiguration as JSON object, @file, or - for stdin"
+              "usage": "NetworkConfiguration as JSON object, @file, or - for stdin",
+              "format": "{\"NetworkMode\":\"<mode>\",\"VpcConfig\":{\"SubnetIds\":[\"subnet-xxx\"],\"SecurityGroupIds\":[\"sg-xxx\"]}}",
+              "values": [
+                "SANDBOX: no external network access",
+                "PUBLIC: public internet access",
+                "VPC: VPC network access; requires VpcConfig"
+              ],
+              "examples": [
+                "agr tool create -n my-tool -t code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}'",
+                "agr tool create -n my-tool -t code-interpreter --network-configuration '{\"NetworkMode\":\"PUBLIC\"}'",
+                "agr tool create -n my-tool -t custom --network-configuration '{\"NetworkMode\":\"VPC\",\"VpcConfig\":{\"SubnetIds\":[\"subnet-xxx\"],\"SecurityGroupIds\":[\"sg-xxx\"]}}'"
+              ]
             }
           }
         },
@@ -220,7 +247,11 @@
           "description": "Tags.",
           "inputs": {
             "tags": {
-              "usage": "Tags as JSON array, @file, or - for stdin"
+              "usage": "Tags as JSON array, @file, or - for stdin",
+              "format": "[{\"Key\":\"<key>\",\"Value\":\"<value>\"}]",
+              "examples": [
+                "agr tool create -n my-tool -t code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}' --tags '[{\"Key\":\"team\",\"Value\":\"platform\"},{\"Key\":\"env\",\"Value\":\"staging\"}]'"
+              ]
             }
           }
         },
@@ -236,7 +267,16 @@
           "description": "Storage mount configuration.",
           "inputs": {
             "storage-mounts": {
-              "usage": "StorageMounts as JSON array, @file, or - for stdin"
+              "usage": "StorageMounts as JSON array, @file, or - for stdin",
+              "format": "[{\"Name\":\"<name>\",\"MountPath\":\"<path>\",\"ReadOnly\":false,\"StorageSource\":{\"Cos\":{...}}}]",
+              "values": [
+                "Cos: Tencent Cloud Object Storage source",
+                "Image: container image volume source",
+                "Cfs: Cloud File Storage source"
+              ],
+              "examples": [
+                "agr tool create -n my-tool -t custom --network-configuration '{\"NetworkMode\":\"PUBLIC\"}' --role-arn qcs::cam::uin/100000:roleName/my-role --storage-mounts '[{\"Name\":\"data\",\"MountPath\":\"/data\",\"StorageSource\":{\"Cos\":{\"Endpoint\":\"cos.ap-guangzhou.myqcloud.com\",\"BucketName\":\"my-bucket\",\"BucketPath\":\"/workspace\"}}}]'"
+              ]
             }
           }
         },
@@ -281,7 +321,12 @@
           "description": "Filter by tool IDs.",
           "inputs": {
             "tool-ids": {
-              "usage": "Filter by tool IDs (generated ToolIds flag)"
+              "usage": "Filter by tool IDs",
+              "format": "--tool-ids <id1> --tool-ids <id2>",
+              "examples": [
+                "agr tool list --tool-ids sdt-abc123",
+                "agr tool list --tool-ids sdt-abc123 --tool-ids sdt-def456"
+              ]
             }
           }
         },
@@ -289,7 +334,18 @@
           "description": "Additional list filters.",
           "inputs": {
             "filters": {
-              "usage": "Additional filters as JSON array, @file, or - for stdin"
+              "usage": "Additional filters as JSON array, @file, or - for stdin",
+              "format": "[{\"Name\":\"<field>\",\"Values\":[\"<value1>\",\"<value2>\"]}]",
+              "values": [
+                "ToolName: exact tool name",
+                "ToolType: browser, code-interpreter, custom, computer, mobile",
+                "Status: CREATING, ACTIVE, DELETING, FAILED"
+              ],
+              "examples": [
+                "agr tool list --filters '[{\"Name\":\"ToolType\",\"Values\":[\"code-interpreter\"]}]'",
+                "agr tool list --filters '[{\"Name\":\"Status\",\"Values\":[\"ACTIVE\"]}]'",
+                "agr tool list --filters '[{\"Name\":\"ToolType\",\"Values\":[\"browser\"]},{\"Name\":\"Status\",\"Values\":[\"ACTIVE\"]}]'"
+              ]
             }
           }
         },

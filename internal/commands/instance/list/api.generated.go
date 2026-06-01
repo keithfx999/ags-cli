@@ -36,7 +36,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "InstanceIds",
 				Parser: "common.default_string_array",
 				Inputs: []apicli.InputSpec{
-					{Name: "instance-ids", Flag: "instance-ids", Usage: "Filter by instance IDs", Type: command.FlagStringArray},
+					{Name: "instance-ids", Flag: "instance-ids", Usage: "Filter by instance IDs", Format: "--instance-ids <id1> --instance-ids <id2>", Examples: []string{"agr instance list --instance-ids ins-abc123", "agr instance list --instance-ids ins-abc123 --instance-ids ins-def456"}, Type: command.FlagStringArray},
 				},
 			},
 			{
@@ -64,7 +64,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "Filters",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "filters", Flag: "filters", Usage: "Additional filters as JSON array, @file, or - for stdin", Type: command.FlagString},
+					{Name: "filters", Flag: "filters", Usage: "Additional filters as JSON array, @file, or - for stdin", Format: "[{\"Name\":\"<field>\",\"Values\":[\"<value1>\",\"<value2>\"]}]", Examples: []string{"agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]}]'", "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\",\"STARTING\"]}]'", "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]},{\"Name\":\"ToolName\",\"Values\":[\"my-tool\"]}]'"}, Values: []string{"Status: STARTING, RUNNING, STOPPING, STOPPED, STOP_FAILED, FAILED", "ToolName: tool name used to create the instance", "ToolId: tool ID"}, Type: command.FlagString},
 				},
 			},
 		},

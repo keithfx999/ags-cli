@@ -16,17 +16,6 @@ import (
 func Module() command.Module {
 	api := APIDescriptor()
 	spec := api.CommandSpec()
-	// Add detailed help for complex flags.
-	for i := range spec.Flags {
-		switch spec.Flags[i].Name {
-		case "network-configuration":
-			spec.Flags[i].DetailedHelp = networkConfigDetailedHelp
-		case "tags":
-			spec.Flags[i].DetailedHelp = tagsDetailedHelp
-		case "storage-mounts":
-			spec.Flags[i].DetailedHelp = storageMountsDetailedHelp
-		}
-	}
 	return command.Module{
 		Descriptor: command.Descriptor{
 			Spec: spec,
@@ -156,78 +145,3 @@ func requestFlag(req command.Request) bool {
 	flag, ok := req.Flags["request"]
 	return ok && flag.Changed && strings.TrimSpace(flag.String) != ""
 }
-
-// networkConfigDetailedHelp is the extended help text for --network-configuration.
-const networkConfigDetailedHelp = `The --network-configuration flag defines the network mode for sandbox
-instances created from this tool.
-
-Format:
-  {"NetworkMode": "<mode>", "VpcConfig": {...}}
-
-Supported NetworkMode values:
-  SANDBOX  - No external network access (isolated sandbox)
-  PUBLIC   - Public internet access
-  VPC      - VPC network access (requires VpcConfig)
-
-VpcConfig (required when NetworkMode is VPC):
-  {"SubnetIds": ["subnet-xxx"], "SecurityGroupIds": ["sg-xxx"]}
-
-Input sources:
-  Inline JSON:  --network-configuration '{"NetworkMode":"SANDBOX"}'
-  File:         --network-configuration @network.json
-  Stdin:        echo '{"NetworkMode":"PUBLIC"}' | agr tool create ... --network-configuration -
-
-Examples:
-  # Isolated sandbox (no network)
-  agr tool create -n my-tool -t code-interpreter --network-configuration '{"NetworkMode":"SANDBOX"}'
-
-  # Public internet access
-  agr tool create -n my-tool -t code-interpreter --network-configuration '{"NetworkMode":"PUBLIC"}'
-
-  # VPC network
-  agr tool create -n my-tool -t custom --network-configuration '{"NetworkMode":"VPC","VpcConfig":{"SubnetIds":["subnet-xxx"],"SecurityGroupIds":["sg-xxx"]}}'`
-
-// tagsDetailedHelp is the extended help text for --tags.
-const tagsDetailedHelp = `The --tags flag attaches resource tags to the tool for organization
-and cost allocation.
-
-Format:
-  [{"Key": "<key>", "Value": "<value>"}, ...]
-
-Input sources:
-  Inline JSON:  --tags '[{"Key":"env","Value":"prod"}]'
-  File:         --tags @tags.json
-  Stdin:        echo '[...]' | agr tool create ... --tags -
-
-Examples:
-  agr tool create -n my-tool -t code-interpreter \
-    --network-configuration '{"NetworkMode":"SANDBOX"}' \
-    --tags '[{"Key":"team","Value":"platform"},{"Key":"env","Value":"staging"}]'`
-
-// storageMountsDetailedHelp is the extended help text for --storage-mounts.
-const storageMountsDetailedHelp = `The --storage-mounts flag configures persistent storage volumes for
-sandbox instances. Requires --role-arn to be set.
-
-Format:
-  [{"Name": "<name>", "MountPath": "<path>", "ReadOnly": false,
-    "StorageSource": {"Cos": {...} | "Image": {...} | "Cfs": {...}}}]
-
-StorageSource types:
-  Cos    - Tencent Cloud Object Storage (COS)
-           {"Endpoint": "...", "BucketName": "...", "BucketPath": "/..."}
-  Image  - Container image volume
-           {"Reference": "...", "SubPath": "/..."}
-  Cfs    - Cloud File Storage (CFS)
-           {"FileSystemId": "cfs-xxx", "Path": "/..."}
-
-Input sources:
-  Inline JSON:  --storage-mounts '[...]'
-  File:         --storage-mounts @mounts.json
-  Stdin:        echo '[...]' | agr tool create ... --storage-mounts -
-
-Examples:
-  # Mount a COS bucket
-  agr tool create -n my-tool -t custom \
-    --network-configuration '{"NetworkMode":"PUBLIC"}' \
-    --role-arn "qcs::cam::uin/100000:roleName/my-role" \
-    --storage-mounts '[{"Name":"data","MountPath":"/data","StorageSource":{"Cos":{"Endpoint":"cos.ap-guangzhou.myqcloud.com","BucketName":"my-bucket","BucketPath":"/workspace"}}}]'`

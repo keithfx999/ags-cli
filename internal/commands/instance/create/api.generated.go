@@ -78,7 +78,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "AuthMode",
 				Parser: "common.default_string",
 				Inputs: []apicli.InputSpec{
-					{Name: "auth-mode", Flag: "auth-mode", Usage: "Auth mode: DEFAULT, TOKEN, NONE, PUBLIC", Type: command.FlagString},
+					{Name: "auth-mode", Flag: "auth-mode", Usage: "Auth mode: DEFAULT, TOKEN, NONE, PUBLIC", Values: []string{"DEFAULT", "TOKEN", "NONE", "PUBLIC"}, Type: command.FlagString},
 				},
 			},
 			{
