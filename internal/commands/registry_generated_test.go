@@ -17,6 +17,7 @@ func TestRegistryIncludesAllKnownCommandModules(t *testing.T) {
 		"instance.browser.vnc",
 		"instance.code.run",
 		"instance.create",
+		"instance.debug",
 		"instance.delete",
 		"instance.exec",
 		"instance.file.download",

@@ -48,6 +48,11 @@ func TestCharacterization_PublicCommandSurface(t *testing.T) {
 			"metadata": {typ: "string"},
 			"request":  {typ: "string"},
 		}},
+		{command: "instance.debug", use: "debug <tool-id>", flags: map[string]flagExpectation{
+			"debug-tool-name": {typ: "string"},
+			"description":     {typ: "string"},
+			"client-token":    {typ: "string"},
+		}},
 		{command: "instance.delete", aliases: []string{"rm", "del"}, use: "delete <instance-id> [instance-id...]", flags: map[string]flagExpectation{
 			"ignore-not-found": {typ: "bool", def: "false"},
 			"request":          {typ: "string"},
@@ -189,6 +194,15 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 				"Update a sandbox tool",
 				"--network-configuration string",
 				"--tags string",
+			},
+		},
+		{
+			command: "instance.debug",
+			contains: []string{
+				"Create a debug tool by copying an existing tool",
+				"--debug-tool-name string",
+				"--description string",
+				"--client-token string",
 			},
 		},
 		{
@@ -337,6 +351,15 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 			want: map[string]schemaFlagExpectation{
 				"stream": {typ: "bool"},
 			},
+		},
+		{
+			command: "instance.debug",
+			want: map[string]schemaFlagExpectation{
+				"debug-tool-name": {typ: "string"},
+				"description":     {typ: "string"},
+				"client-token":    {typ: "string"},
+			},
+			wantArgs: []string{"ToolId"},
 		},
 		{
 			command: "api.call",

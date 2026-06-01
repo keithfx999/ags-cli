@@ -11,6 +11,7 @@ import (
 	instancebrowservnc "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/browser/vnc"
 	instancecoderun "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/code/run"
 	instancecreate "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/create"
+	instancedebug "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/debug"
 	instancedelete "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/delete"
 	instanceexec "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/exec"
 	instancefiledownload "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/file/download"
@@ -46,6 +47,7 @@ func Registry() (*command.Registry, error) {
 		instancebrowservnc.Module(),
 		instancecoderun.Module(),
 		instancecreate.Module(),
+		instancedebug.Module(),
 		instancedelete.Module(),
 		instanceexec.Module(),
 		instancefiledownload.Module(),
