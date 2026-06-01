@@ -36,6 +36,7 @@ func TestRegistryIncludesAllKnownCommandModules(t *testing.T) {
 		"instance.update",
 		"tool.create",
 		"tool.delete",
+		"tool.fork",
 		"tool.get",
 		"tool.list",
 		"tool.update",
