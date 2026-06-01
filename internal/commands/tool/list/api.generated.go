@@ -34,7 +34,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "ToolIds",
 				Parser: "common.default_string_array",
 				Inputs: []apicli.InputSpec{
-					{Name: "tool-ids", Flag: "tool-ids", Usage: "Filter by tool IDs", Format: "--tool-ids <id1> --tool-ids <id2>", Examples: []string{"agr tool list --tool-ids sdt-abc123", "agr tool list --tool-ids sdt-abc123 --tool-ids sdt-def456"}, Type: command.FlagStringArray},
+					{Name: "tool-ids", Flag: "tool-ids", Usage: "Filter by tool IDs", Format: "--tool-ids <id1> --tool-ids <id2>", Examples: []string{"agr tool list --tool-ids sdt-xxxx", "agr tool list --tool-ids sdt-xxxx --tool-ids sdt-yyyy"}, Type: command.FlagStringArray},
 				},
 			},
 			{

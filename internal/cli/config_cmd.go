@@ -24,10 +24,20 @@ var configCmd = &cobra.Command{
 }
 
 var configShowCmd = &cobra.Command{Use: "show", Short: "Show current configuration values and sources"}
-var configSetCmd = &cobra.Command{Use: "set <key> <value>", Short: "Set a configuration value", Args: cobra.RangeArgs(0, 2)}
-var configPathCmd = &cobra.Command{Use: "path", Short: "Print the configuration file path"}
+var configSetCmd = &cobra.Command{
+	Use:     "set <key> <value>",
+	Short:   "Set a configuration value",
+	Example: exampleBlocks("agr config set region ap-guangzhou", "agr config set output json"),
+	Args:    cobra.RangeArgs(0, 2),
+}
+var configPathCmd = &cobra.Command{
+	Use:     "path",
+	Short:   "Print the configuration file path",
+	Example: exampleBlocks("agr config path", "agr config path -o json"),
+}
 
 func init() {
+	configShowCmd.Example = exampleBlocks("agr config show", "agr config show -o json")
 	configShowCmd.RunE = Wrap("config.show", configShowFn)
 	configSetCmd.RunE = Wrap("config.set", configSetFn)
 	configPathCmd.RunE = Wrap("config.path", configPathFn)

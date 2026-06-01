@@ -64,7 +64,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "MountOptions",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "mount-options", Flag: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin", Type: command.FlagString},
+					{Name: "mount-options", Flag: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin", Format: "[{\"Name\":\"<name>\",\"MountPath\":\"<path>\"}]", Examples: []string{"agr instance create --tool-id sdt-xxxx --mount-options '[{\"Name\":\"data\",\"MountPath\":\"/workspace\"}]'", "agr instance create --tool-id sdt-xxxx --mount-options @mounts.json"}, Type: command.FlagString},
 				},
 			},
 			{
@@ -85,7 +85,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "Metadata",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "metadata", Flag: "metadata", Usage: "Metadata as JSON array, @file, or - for stdin", Type: command.FlagString},
+					{Name: "metadata", Flag: "metadata", Usage: "Metadata as JSON array, @file, or - for stdin", Format: "[{\"Key\":\"<key>\",\"Value\":\"<value>\"}]", Examples: []string{"agr instance create --tool-id sdt-xxxx --metadata '[{\"Key\":\"env\",\"Value\":\"test\"}]'"}, Type: command.FlagString},
 				},
 			},
 		},

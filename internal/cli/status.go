@@ -14,7 +14,11 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
-var statusCmd = &cobra.Command{Use: "status", Short: "Show current CLI configuration status"}
+var statusCmd = &cobra.Command{
+	Use:     "status",
+	Short:   "Show current CLI configuration status",
+	Example: exampleBlocks("agr status", "agr status -o json"),
+}
 
 func statusFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 	permWarning := config.CheckConfigFilePermissions()

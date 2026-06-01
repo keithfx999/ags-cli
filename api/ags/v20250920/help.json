@@ -40,7 +40,12 @@
           "description": "Storage mount options for the instance.",
           "inputs": {
             "mount-options": {
-              "usage": "MountOptions as JSON array, @file, or - for stdin"
+              "usage": "MountOptions as JSON array, @file, or - for stdin",
+              "format": "[{\"Name\":\"<name>\",\"MountPath\":\"<path>\"}]",
+              "examples": [
+                "agr instance create --tool-id sdt-xxxx --mount-options '[{\"Name\":\"data\",\"MountPath\":\"/workspace\"}]'",
+                "agr instance create --tool-id sdt-xxxx --mount-options @mounts.json"
+              ]
             }
           }
         },
@@ -56,7 +61,11 @@
           "description": "Instance metadata.",
           "inputs": {
             "metadata": {
-              "usage": "Metadata as JSON array, @file, or - for stdin"
+              "usage": "Metadata as JSON array, @file, or - for stdin",
+              "format": "[{\"Key\":\"<key>\",\"Value\":\"<value>\"}]",
+              "examples": [
+                "agr instance create --tool-id sdt-xxxx --metadata '[{\"Key\":\"env\",\"Value\":\"test\"}]'"
+              ]
             }
           }
         },
@@ -89,7 +98,7 @@
       "long": "List sandbox instances with optional filters.",
       "examples": [
         "agr instance list",
-        "agr instance list --tool-id sdt-xxx",
+        "agr instance list --tool-id sdt-xxxx",
         "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]}]'",
         "agr instance list --offset 0 --limit 50"
       ],
@@ -109,8 +118,8 @@
               "usage": "Filter by instance IDs",
               "format": "--instance-ids <id1> --instance-ids <id2>",
               "examples": [
-                "agr instance list --instance-ids ins-abc123",
-                "agr instance list --instance-ids ins-abc123 --instance-ids ins-def456"
+                "agr instance list --instance-ids ins-xxxx",
+                "agr instance list --instance-ids ins-xxxx --instance-ids ins-yyyy"
               ]
             }
           }
@@ -324,8 +333,8 @@
               "usage": "Filter by tool IDs",
               "format": "--tool-ids <id1> --tool-ids <id2>",
               "examples": [
-                "agr tool list --tool-ids sdt-abc123",
-                "agr tool list --tool-ids sdt-abc123 --tool-ids sdt-def456"
+                "agr tool list --tool-ids sdt-xxxx",
+                "agr tool list --tool-ids sdt-xxxx --tool-ids sdt-yyyy"
               ]
             }
           }

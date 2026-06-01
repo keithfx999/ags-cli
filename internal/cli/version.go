@@ -22,9 +22,10 @@ var (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Long:  `Print the version, commit hash, and build time of AGR CLI.`,
+	Use:     "version",
+	Short:   "Print version information",
+	Long:    `Print the version, commit hash, and build time of AGR CLI.`,
+	Example: exampleBlocks("agr version", "agr --version", "agr version -o json"),
 }
 
 func init() {
