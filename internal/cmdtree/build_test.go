@@ -335,14 +335,21 @@ func buildSingle(module command.Module) error {
 
 var _ apicli.ControlPlane = (*fakeControlPlane)(nil)
 
-func TestBuildModuleCommand_DetailedHelpAnnotation(t *testing.T) {
+func TestBuildModuleCommand_FlagUsageIncludesStructuredHelp(t *testing.T) {
 	module := command.Module{
 		Descriptor: command.Descriptor{
 			Spec: command.Spec{
 				ID:   "test.cmd",
 				Path: []string{"test", "cmd"},
 				Flags: []command.FlagSpec{
-					{Name: "filters", Type: command.FlagString, Usage: "Filter results", DetailedHelp: "Extended help text"},
+					{
+						Name:     "filters",
+						Type:     command.FlagString,
+						Usage:    "Filter results",
+						Format:   `[{"Name":"<field>","Values":["<value>"]}]`,
+						Values:   []string{"Status: RUNNING, STOPPED"},
+						Examples: []string{`agr test cmd --filters '[{"Name":"Status","Values":["RUNNING"]}]'`},
+					},
 					{Name: "offset", Type: command.FlagInt, Usage: "Offset"},
 				},
 			},
@@ -362,30 +369,34 @@ func TestBuildModuleCommand_DetailedHelpAnnotation(t *testing.T) {
 		t.Fatalf("BuildModuleCommand: %v", err)
 	}
 
-	// Check that --filters has agr.detailed_help annotation
 	f := cmd.Flags().Lookup("filters")
 	if f == nil {
 		t.Fatal("--filters flag not found")
 	}
-	ann, ok := f.Annotations["agr.detailed_help"]
-	if !ok || len(ann) == 0 {
-		t.Fatal("--filters missing agr.detailed_help annotation")
-	}
-	if ann[0] != "Extended help text" {
-		t.Fatalf("annotation = %q, want \"Extended help text\"", ann[0])
+	for _, want := range []string{
+		"Filter results",
+		"Format:",
+		`[{"Name":"<field>","Values":["<value>"]}]`,
+		"Values:",
+		"Status: RUNNING, STOPPED",
+		"Examples:",
+		`agr test cmd --filters '[{"Name":"Status","Values":["RUNNING"]}]'`,
+	} {
+		if !strings.Contains(f.Usage, want) {
+			t.Fatalf("--filters usage missing %q:\n%s", want, f.Usage)
+		}
 	}
 
-	// Check that --offset does NOT have the annotation
 	f2 := cmd.Flags().Lookup("offset")
 	if f2 == nil {
 		t.Fatal("--offset flag not found")
 	}
-	if ann2, ok := f2.Annotations["agr.detailed_help"]; ok && len(ann2) > 0 {
-		t.Fatalf("--offset should not have agr.detailed_help, got %v", ann2)
+	if f2.Usage != "Offset" {
+		t.Fatalf("--offset usage = %q, want Offset", f2.Usage)
 	}
 }
 
-func TestBuildModuleCommand_DetailedHelpMergesWithExistingAnnotations(t *testing.T) {
+func TestBuildModuleCommand_FlagUsagePreservesExistingAnnotations(t *testing.T) {
 	module := command.Module{
 		Descriptor: command.Descriptor{
 			Spec: command.Spec{
@@ -393,11 +404,11 @@ func TestBuildModuleCommand_DetailedHelpMergesWithExistingAnnotations(t *testing
 				Path: []string{"test", "ann"},
 				Flags: []command.FlagSpec{
 					{
-						Name:         "config",
-						Type:         command.FlagString,
-						Usage:        "Config file",
-						DetailedHelp: "Detailed config help",
-						Annotations:  map[string][]string{"custom.key": {"custom-value"}},
+						Name:        "config",
+						Type:        command.FlagString,
+						Usage:       "Config file",
+						Format:      "@file or -",
+						Annotations: map[string][]string{"custom.key": {"custom-value"}},
 					},
 				},
 			},
@@ -421,11 +432,10 @@ func TestBuildModuleCommand_DetailedHelpMergesWithExistingAnnotations(t *testing
 	if f == nil {
 		t.Fatal("--config flag not found")
 	}
-	// Both annotations should be present
-	if ann, ok := f.Annotations["agr.detailed_help"]; !ok || ann[0] != "Detailed config help" {
-		t.Fatalf("missing or wrong agr.detailed_help: %v", f.Annotations)
-	}
 	if ann, ok := f.Annotations["custom.key"]; !ok || ann[0] != "custom-value" {
 		t.Fatalf("missing or wrong custom.key: %v", f.Annotations)
+	}
+	if !strings.Contains(f.Usage, "Format:\n  @file or -") {
+		t.Fatalf("--config usage missing format:\n%s", f.Usage)
 	}
 }

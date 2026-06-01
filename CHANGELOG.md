@@ -24,16 +24,9 @@ All notable changes to this project will be documented in this file.
   current configured region and includes the region in aggregated output.
 - `make go-install` target installs the binary to `$GOPATH/bin` with
   full version metadata injected via ldflags.
-- Add per-flag detailed help: use `--<flag> --help` (e.g.
-  `agr tool list --filters --help`) to display extended help for complex
-  flags, including supported values, JSON format, and usage examples.
-- Supported flags with detailed help: `--filters` (tool list, instance
-  list), `--tool-ids`, `--instance-ids`, `--network-configuration`,
-  `--tags`, `--storage-mounts` (tool create).
-- JSON output mode (`-o json`) supported for per-flag help via the
-  `flag-help` command envelope.
-- `agr schema -o json` now includes a `DetailedHelp` field on flags that
-  provide extended documentation.
+- Normal command help now includes Format, Values, and Examples for
+  complex flags such as `--filters`, `--tool-ids`, `--instance-ids`,
+  `--network-configuration`, `--tags`, and `--storage-mounts`.
 
 ## [0.5.1] - 2026-05-29
 

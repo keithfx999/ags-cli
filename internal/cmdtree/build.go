@@ -396,27 +396,28 @@ func registerFlags(flags *pflag.FlagSet, specs []command.FlagSpec) error {
 		if spec.Type == "" {
 			spec.Type = command.FlagString
 		}
+		usage := flagUsage(spec)
 		names := append([]string{spec.Name}, spec.Aliases...)
 		switch spec.Type {
 		case command.FlagString:
 			value := stringDefault(spec.Default)
 			for _, name := range names {
-				flags.StringP(name, shorthandFor(name, spec), value, spec.Usage)
+				flags.StringP(name, shorthandFor(name, spec), value, usage)
 			}
 		case command.FlagBool:
 			value := boolDefault(spec.Default)
 			for _, name := range names {
-				flags.BoolP(name, shorthandFor(name, spec), value, spec.Usage)
+				flags.BoolP(name, shorthandFor(name, spec), value, usage)
 			}
 		case command.FlagInt:
 			value := intDefault(spec.Default)
 			for _, name := range names {
-				flags.IntP(name, shorthandFor(name, spec), value, spec.Usage)
+				flags.IntP(name, shorthandFor(name, spec), value, usage)
 			}
 		case command.FlagStringArray:
 			value := stringArrayDefault(spec.Default)
 			for _, name := range names {
-				flags.StringArrayP(name, shorthandFor(name, spec), value, spec.Usage)
+				flags.StringArrayP(name, shorthandFor(name, spec), value, usage)
 			}
 		default:
 			return fmt.Errorf("flag --%s has unsupported type %q", spec.Name, spec.Type)
@@ -428,17 +429,31 @@ func registerFlags(flags *pflag.FlagSet, specs []command.FlagSpec) error {
 			}
 			f.Hidden = spec.Hidden
 			f.Deprecated = spec.Deprecated
-			annotations := spec.Annotations
-			if spec.DetailedHelp != "" {
-				if annotations == nil {
-					annotations = map[string][]string{}
-				}
-				annotations["agr.detailed_help"] = []string{spec.DetailedHelp}
-			}
-			f.Annotations = annotations
+			f.Annotations = spec.Annotations
 		}
 	}
 	return nil
+}
+
+func flagUsage(spec command.FlagSpec) string {
+	usage := strings.TrimSpace(spec.Usage)
+	var sections []string
+	if spec.Format != "" {
+		sections = append(sections, "Format:\n  "+strings.TrimSpace(spec.Format))
+	}
+	if len(spec.Values) > 0 {
+		sections = append(sections, "Values:\n  "+strings.Join(spec.Values, "\n  "))
+	}
+	if len(spec.Examples) > 0 {
+		sections = append(sections, "Examples:\n  "+strings.Join(spec.Examples, "\n  "))
+	}
+	if len(sections) == 0 {
+		return usage
+	}
+	if usage == "" {
+		return strings.Join(sections, "\n\n")
+	}
+	return usage + "\n\n" + strings.Join(sections, "\n\n")
 }
 
 // BuildRequest converts Cobra args and flags into the normalized command

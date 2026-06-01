@@ -23,15 +23,6 @@ func Module() command.Module {
 		DataType:    "ToolListData",
 		Description: "Tool list with normalized items and pagination metadata.",
 	}
-	// Add detailed help for complex flags.
-	for i := range spec.Flags {
-		switch spec.Flags[i].Name {
-		case "filters":
-			spec.Flags[i].DetailedHelp = filtersDetailedHelp
-		case "tool-ids":
-			spec.Flags[i].DetailedHelp = toolIdsDetailedHelp
-		}
-	}
 	return command.Module{
 		Descriptor: command.Descriptor{
 			Spec: spec,
@@ -259,49 +250,3 @@ func derefInt64(i *int64) int {
 	}
 	return int(*i)
 }
-
-// filtersDetailedHelp is the extended help text for the --filters flag.
-const filtersDetailedHelp = `The --filters flag accepts a JSON array of filter objects. Each filter
-narrows the result set by matching a resource attribute against one or
-more values. When multiple filters are supplied, they are combined with
-AND logic; values within a single filter use OR logic.
-
-Format:
-  [{"Name": "<field>", "Values": ["<value1>", "<value2>", ...]}]
-
-Supported filter names for tool list:
-  ToolName    - Filter by tool name (exact match)
-  ToolType    - Filter by tool type
-  Status      - Filter by tool status
-
-Supported values for ToolType:
-  browser, code-interpreter, custom, computer, mobile
-
-Supported values for Status:
-  CREATING, ACTIVE, DELETING, FAILED
-
-Input sources:
-  Inline JSON:  --filters '[{"Name":"ToolType","Values":["code-interpreter"]}]'
-  File:         --filters @filters.json
-  Stdin:        echo '[...]' | agr tool list --filters -
-
-Examples:
-  # List only code-interpreter tools
-  agr tool list --filters '[{"Name":"ToolType","Values":["code-interpreter"]}]'
-
-  # List tools with ACTIVE status
-  agr tool list --filters '[{"Name":"Status","Values":["ACTIVE"]}]'
-
-  # Combine multiple filters (AND logic)
-  agr tool list --filters '[{"Name":"ToolType","Values":["browser"]},{"Name":"Status","Values":["ACTIVE"]}]'`
-
-// toolIdsDetailedHelp is the extended help text for the --tool-ids flag.
-const toolIdsDetailedHelp = `The --tool-ids flag filters results to specific tool IDs. Pass one or
-more tool IDs as a repeatable flag.
-
-Format:
-  --tool-ids <id1> --tool-ids <id2>
-
-Examples:
-  agr tool list --tool-ids sdt-abc123
-  agr tool list --tool-ids sdt-abc123 --tool-ids sdt-def456`

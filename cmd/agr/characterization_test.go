@@ -183,9 +183,22 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 			contains: []string{
 				"Create a new sandbox tool",
 				"--network-configuration string",
+				"Format:",
+				"NetworkMode",
 				"--tags string",
 				"--storage-mounts string",
+				"agr tool create -n my-tool -t custom --network-configuration",
 				"--persistent",
+			},
+		},
+		{
+			command: "instance.list",
+			contains: []string{
+				"List sandbox instances with optional filters.",
+				"--filters string",
+				"Format:",
+				`[{"Name":"<field>","Values":["<value1>","<value2>"]}]`,
+				"Status: STARTING, RUNNING, STOPPING, STOPPED, STOP_FAILED, FAILED",
 			},
 		},
 		{

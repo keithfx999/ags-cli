@@ -84,11 +84,6 @@ func init() {
 			os.Exit(output.ExitUsage)
 		}
 
-		// Per-flag detailed help: detect --<flag> --help pattern
-		if tryFlagHelp(cmd) {
-			return
-		}
-
 		if wantJSON {
 			cmdID := canonicalCommandID(cmd)
 			if cmdID == "" {
