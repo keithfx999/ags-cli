@@ -37,6 +37,7 @@ type CommandSchema struct {
 	RequestSchema   *RequestSchema `json:"RequestSchema"`
 	Args            []ArgSchema    `json:"Args,omitempty"`
 	Flags           []FlagSchema   `json:"Flags,omitempty"`
+	Examples        []string       `json:"Examples,omitempty"`
 	Output          string         `json:"Output,omitempty"`
 	Failures        []string       `json:"Failures,omitempty"`
 }
@@ -94,12 +95,12 @@ var schemaCmd = &cobra.Command{
 	Long: `Show the schema of commands for machine consumption.
 
 Without arguments, shows all command schemas.
-With a command name (dot-separated), shows that command's schema.
-
-Examples:
-  agr schema -o json
-  agr schema instance.code.run -o json
-  agr schema instance.create -o json`,
+With a command name (dot-separated), shows that command's schema.`,
+	Example: exampleBlocks(
+		"agr schema -o json",
+		"agr schema instance.code.run -o json",
+		"agr schema instance.create -o json",
+	),
 	Args: cobra.MaximumNArgs(1),
 }
 
@@ -421,6 +422,7 @@ func schemaFromDescriptor(desc command.Descriptor) CommandSchema {
 		SupportsRequest: false,
 		Args:            commandArgsToSchema(spec.Args),
 		Flags:           commandFlagsToSchema(spec.Flags),
+		Examples:        append([]string(nil), spec.Examples...),
 		Output:          spec.Output.DataType,
 	}
 }
@@ -546,6 +548,9 @@ func mergeCommandSchema(base, override CommandSchema) CommandSchema {
 	if len(override.Flags) > 0 {
 		merged.Flags = mergeFlagSchemas(merged.Flags, override.Flags)
 	}
+	if len(override.Examples) > 0 {
+		merged.Examples = append([]string(nil), override.Examples...)
+	}
 	if override.Output != "" {
 		merged.Output = override.Output
 	}
@@ -608,6 +613,7 @@ func cloneCommandSchema(in CommandSchema) CommandSchema {
 	out.Subcommands = append([]string(nil), in.Subcommands...)
 	out.Args = cloneArgSchemas(in.Args)
 	out.Flags = append([]FlagSchema(nil), in.Flags...)
+	out.Examples = append([]string(nil), in.Examples...)
 	out.Failures = append([]string(nil), in.Failures...)
 	out.RequestSchema = cloneRequestSchema(in.RequestSchema)
 	return out
@@ -693,6 +699,9 @@ func enrichSchemasFromGenerator(schemas []CommandSchema) {
 					Shorthand:   gf.Shorthand,
 					Type:        gf.Type,
 					Description: gf.Description,
+					Format:      gf.Format,
+					Examples:    append([]string(nil), gf.Examples...),
+					Values:      append([]string(nil), gf.Values...),
 				}
 				if found {
 					prev := schema.Flags[idx]
@@ -703,11 +712,17 @@ func enrichSchemasFromGenerator(schemas []CommandSchema) {
 						fl.Shorthand = prev.Shorthand
 					}
 					fl.Default = prev.Default
-					fl.Examples = prev.Examples
-					fl.Values = prev.Values
+					if len(fl.Examples) == 0 {
+						fl.Examples = prev.Examples
+					}
+					if len(fl.Values) == 0 {
+						fl.Values = prev.Values
+					}
 					fl.IncompatibleWith = prev.IncompatibleWith
 					fl.AllowsOutput = prev.AllowsOutput
-					fl.Format = prev.Format
+					if fl.Format == "" {
+						fl.Format = prev.Format
+					}
 					schema.Flags[idx] = fl
 					continue
 				}

@@ -47,8 +47,8 @@ func Module() command.Module {
 Connects a terminal session directly in your current console.
 
 Examples:
-  agr instance login <id>
-  agr instance login <id> --user root`,
+  agr instance login ins-xxxx
+  agr instance login ins-xxxx --user root`,
 		Args:  []command.ArgSpec{{Name: "instance-id", Required: true}},
 		Flags: []command.FlagSpec{{Name: "user", Usage: "User to run terminal as (default: \"user\")", Type: command.FlagString}},
 	}

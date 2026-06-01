@@ -14,10 +14,11 @@ import (
 var initOverwrite bool
 
 var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize local AGR CLI configuration",
-	Long:  "Initialize local AGR CLI configuration and Tencent Cloud credentials without creating remote resources.",
-	Args:  cobra.NoArgs,
+	Use:     "init",
+	Short:   "Initialize local AGR CLI configuration",
+	Long:    "Initialize local AGR CLI configuration and Tencent Cloud credentials without creating remote resources.",
+	Example: exampleBlocks("agr init --secret-id <id> --secret-key <key>", "agr init --overwrite --secret-id <id> --secret-key <key>"),
+	Args:    cobra.NoArgs,
 }
 
 func init() {

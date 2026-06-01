@@ -27,7 +27,11 @@ type DoctorCheck struct {
 	Failure *output.Failure `json:"-"`
 }
 
-var doctorCmd = &cobra.Command{Use: "doctor", Short: "Diagnose CLI configuration issues"}
+var doctorCmd = &cobra.Command{
+	Use:     "doctor",
+	Short:   "Diagnose CLI configuration issues",
+	Example: exampleBlocks("agr doctor", "agr doctor -o json"),
+}
 
 func doctorFn(cmd *cobra.Command, args []string) (*CmdResult, error) {
 	cfg := config.Get()

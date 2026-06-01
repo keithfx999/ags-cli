@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
 - Normal command help now includes Format, Values, and Examples for
   complex flags such as `--filters`, `--tool-ids`, `--instance-ids`,
   `--network-configuration`, `--tags`, and `--storage-mounts`.
+- Command help now renders grouped `Example - ...:` sections across
+  public leaf commands, and `agr schema` exposes command examples plus
+  complex flag format/examples/values metadata.
 
 ## [0.5.1] - 2026-05-29
 

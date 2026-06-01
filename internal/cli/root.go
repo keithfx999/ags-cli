@@ -42,17 +42,16 @@ var rootCmd = &cobra.Command{
 	Long: `AGR CLI is the command-line interface for Tencent Cloud Agent Runtime (AGR).
 
 Create sandbox instances, execute code, manage tools and API keys.
-Run 'agr doctor' to diagnose configuration issues.
-
-Examples:
-  tool_id=$(agr tool create --tool-name "quickstart-code-$(date +%s)-$$" --tool-type code-interpreter --network-configuration '{"NetworkMode":"SANDBOX"}' -o json --jq '.Data.ToolId')
-  instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId')
-  agr instance code run "$instance_id" -c "print('Hello, World!')"
-  agr instance delete "$instance_id" --ignore-not-found
-  agr tool delete "$tool_id"
-
-  agr status
-  agr doctor`,
+Run 'agr doctor' to diagnose configuration issues.`,
+	Example: exampleBlocks(
+		`tool_id=$(agr tool create --tool-name "quickstart-code-$(date +%s)-$$" --tool-type code-interpreter --network-configuration '{"NetworkMode":"SANDBOX"}' -o json --jq '.Data.ToolId')
+instance_id=$(agr instance create --tool-id "$tool_id" -o json --jq '.Data.InstanceId')
+agr instance code run "$instance_id" -c "print('Hello, World!')"
+agr instance delete "$instance_id" --ignore-not-found
+agr tool delete "$tool_id"`,
+		"agr status",
+		"agr doctor",
+	),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
 			return Wrap("version", versionFn)(cmd, args)
@@ -149,10 +148,11 @@ func init() {
 
 func newHelpCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "help [command]",
-		Short: "Help about any command",
-		Long:  "Help provides help for any command in the application.",
-		Args:  cobra.ArbitraryArgs,
+		Use:     "help [command]",
+		Short:   "Help about any command",
+		Long:    "Help provides help for any command in the application.",
+		Example: exampleBlocks("agr help instance create", "agr help schema"),
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Root().Help()

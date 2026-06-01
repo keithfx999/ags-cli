@@ -15,7 +15,7 @@ func APIDescriptor() apicli.APIDescriptor {
 			Use:          "list",
 			Short:        "List instances",
 			Long:         "List sandbox instances with optional filters.",
-			Examples:     []string{"agr instance list", "agr instance list --tool-id sdt-xxx", "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]}]'", "agr instance list --offset 0 --limit 50"},
+			Examples:     []string{"agr instance list", "agr instance list --tool-id sdt-xxxx", "agr instance list --filters '[{\"Name\":\"Status\",\"Values\":[\"RUNNING\"]}]'", "agr instance list --offset 0 --limit 50"},
 			Aliases:      []string{"ls"},
 			SupportsJSON: true,
 			Output: command.OutputSpec{
@@ -36,7 +36,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "InstanceIds",
 				Parser: "common.default_string_array",
 				Inputs: []apicli.InputSpec{
-					{Name: "instance-ids", Flag: "instance-ids", Usage: "Filter by instance IDs", Format: "--instance-ids <id1> --instance-ids <id2>", Examples: []string{"agr instance list --instance-ids ins-abc123", "agr instance list --instance-ids ins-abc123 --instance-ids ins-def456"}, Type: command.FlagStringArray},
+					{Name: "instance-ids", Flag: "instance-ids", Usage: "Filter by instance IDs", Format: "--instance-ids <id1> --instance-ids <id2>", Examples: []string{"agr instance list --instance-ids ins-xxxx", "agr instance list --instance-ids ins-xxxx --instance-ids ins-yyyy"}, Type: command.FlagStringArray},
 				},
 			},
 			{

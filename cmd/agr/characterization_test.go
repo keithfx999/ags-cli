@@ -405,6 +405,13 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 			schema := schemaForCommand(t, tc.command)
 			if tc.command == "instance.create" {
 				requirePropertyType(t, schema, "AuthMode", "enum")
+				if !containsString(schema.Examples, "agr instance create --tool-id sdt-xxxx") {
+					t.Fatalf("schema %s examples %v missing tool-id example", tc.command, schema.Examples)
+				}
+				flag := schema.Flags["mount-options"]
+				if flag.Type != "json" || len(flag.Examples) == 0 {
+					t.Fatalf("schema %s mount-options metadata incomplete: %#v", tc.command, flag)
+				}
 			}
 			if tc.command == "pre-cache-image-task.create" {
 				if !schema.RequiresAuth {
@@ -606,10 +613,13 @@ type commandSchemaSnapshot struct {
 	Failures []string
 	Flags    map[string]struct {
 		Type             string
+		Format           string
+		Examples         []string
 		Values           []string
 		IncompatibleWith []string
 		AllowsOutput     []string
 	}
+	Examples []string
 }
 
 func commandHelp(t *testing.T, cmd *cobra.Command) string {
@@ -626,6 +636,20 @@ func commandHelp(t *testing.T, cmd *cobra.Command) string {
 		t.Fatalf("help failed: %v", err)
 	}
 	return buf.String()
+}
+
+func TestCharacterization_LeafHelpIncludesGroupedExamples(t *testing.T) {
+	root := contractRoot()
+	for _, commandID := range leafCommandIDs(root) {
+		cmd, ok := findCobraCommand(root, commandID)
+		if !ok {
+			t.Fatalf("command %s not found", commandID)
+		}
+		help := commandHelp(t, cmd)
+		if !strings.Contains(help, "Example - ") {
+			t.Fatalf("help for %s missing grouped examples:\n%s", commandID, help)
+		}
+	}
 }
 
 func schemaForCommand(t *testing.T, command string) commandSchemaSnapshot {
@@ -667,10 +691,13 @@ func schemaSnapshotForCommand(t *testing.T, command string) commandSchemaSnapsho
 			Flags    []struct {
 				Name             string   `json:"Name"`
 				Type             string   `json:"Type"`
+				Format           string   `json:"Format"`
+				Examples         []string `json:"Examples"`
 				Values           []string `json:"Values"`
 				IncompatibleWith []string `json:"IncompatibleWith"`
 				AllowsOutput     []string `json:"AllowsOutput"`
 			} `json:"Flags"`
+			Examples []string `json:"Examples"`
 		} `json:"Data"`
 	}
 	jsonStart := strings.Index(output, "{")
@@ -698,8 +725,11 @@ func schemaSnapshotForCommand(t *testing.T, command string) commandSchemaSnapsho
 			CliFlag *string
 		}{},
 		Failures: env.Data.Failures,
+		Examples: append([]string(nil), env.Data.Examples...),
 		Flags: map[string]struct {
 			Type             string
+			Format           string
+			Examples         []string
 			Values           []string
 			IncompatibleWith []string
 			AllowsOutput     []string
@@ -720,11 +750,15 @@ func schemaSnapshotForCommand(t *testing.T, command string) commandSchemaSnapsho
 	for _, flag := range env.Data.Flags {
 		snapshot.Flags[flag.Name] = struct {
 			Type             string
+			Format           string
+			Examples         []string
 			Values           []string
 			IncompatibleWith []string
 			AllowsOutput     []string
 		}{
 			Type:             flag.Type,
+			Format:           flag.Format,
+			Examples:         append([]string(nil), flag.Examples...),
 			Values:           flag.Values,
 			IncompatibleWith: flag.IncompatibleWith,
 			AllowsOutput:     flag.AllowsOutput,
