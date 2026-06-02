@@ -22,8 +22,13 @@ type ControlPlane interface {
 }
 
 // Session is the interactive PTY connection opened against a sandbox instance.
+//
+// Connect blocks until the remote shell exits. Its first return value is the
+// remote shell's exit code (0 for a clean `exit`); its second return value is
+// non-nil only when the data-plane session itself fails (transport, auth,
+// envd RPC) and never just because the remote shell returned non-zero.
 type Session interface {
-	Connect(ctx context.Context, instanceID, user string) error
+	Connect(ctx context.Context, instanceID, user string) (int, error)
 }
 
 // RuntimeDeps contains data-plane and terminal dependencies that tests can
@@ -135,10 +140,15 @@ func runLogin(ctx context.Context, req command.Request, cp ControlPlane, rt Runt
 	}
 	cfg := config.Get()
 	session := rt.NewSession(accessToken, cfg.DataPlaneRegionDomain())
-	if err := session.Connect(ctx, instanceID, resolveUser(stringFlag(req, "user"))); err != nil {
+	exitCode, err := session.Connect(ctx, instanceID, resolveUser(stringFlag(req, "user")))
+	if err != nil {
 		return nil, classifySessionError(err)
 	}
-	return &command.Result{StreamDone: true}, nil
+	// A clean remote shell exit (typed `exit`, possibly inheriting 130 from a
+	// Ctrl-C'd command) is not a CLI error: propagate the exit code as the
+	// process exit status without rendering an error envelope, mirroring how
+	// `ssh` reports the remote shell's status.
+	return &command.Result{StreamDone: true, ExitCode: exitCode}, nil
 }
 
 func classifySessionError(err error) error {
@@ -146,13 +156,6 @@ func classifySessionError(err error) error {
 		return nil
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "PTY session exited with code") {
-		return output.NewRemoteExecutionError(
-			"PTY_SESSION_EXITED",
-			msg,
-			"The remote shell exited with a non-zero status.",
-		)
-	}
 
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
