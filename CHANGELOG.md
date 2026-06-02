@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - `agr version` now extracts commit hash and build timestamp from Go
   module pseudo-versions when VCS build info is unavailable (e.g. binaries
   installed via `go install @latest`).
+- Live test binary builds now disable Go VCS stamping so race-test gate
+  runs do not fail in worktrees where Git metadata cannot be inspected.
 
 ### Added
 - Tencent Cloud STS session tokens are now supported via `--token`,
