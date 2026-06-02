@@ -51,7 +51,6 @@ func TestCharacterization_PublicCommandSurface(t *testing.T) {
 		{command: "instance.debug", use: "debug <tool-id>", flags: map[string]flagExpectation{
 			"debug-tool-name": {typ: "string"},
 			"description":     {typ: "string"},
-			"timeout":         {typ: "string", def: "1h"},
 			"client-token":    {typ: "string"},
 		}},
 		{command: "instance.delete", aliases: []string{"rm", "del"}, use: "delete <instance-id> [instance-id...]", flags: map[string]flagExpectation{
@@ -213,10 +212,9 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 		{
 			command: "instance.debug",
 			contains: []string{
-				"Create a temporary debug tool from an existing tool",
+				"Create a debug tool by copying an existing tool",
 				"--debug-tool-name string",
 				"--description string",
-				"--timeout string",
 				"--client-token string",
 			},
 		},
@@ -372,7 +370,6 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 			want: map[string]schemaFlagExpectation{
 				"debug-tool-name": {typ: "string"},
 				"description":     {typ: "string"},
-				"timeout":         {typ: "string"},
 				"client-token":    {typ: "string"},
 			},
 			wantArgs: []string{"ToolId"},

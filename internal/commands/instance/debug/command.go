@@ -10,7 +10,6 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/internal/tooltags"
-	instanceview "github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/internal/instanceview"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 )
@@ -22,18 +21,11 @@ const (
 	envdImageSubPath  = "/usr/bin/envd"
 	envdRegistryType  = "personal"
 	defaultNameMaxLen = 50
-	defaultTimeout    = "1h"
-	debugReadyTimeout = 10 * time.Minute
-	debugPollInterval = 5 * time.Second
-	debugCleanupWait  = 30 * time.Second
 )
 
-// ControlPlane supplies the resource operations used by the debug workflow.
+// ControlPlane supplies the tool lookup and create call used by the debug workflow.
 type ControlPlane interface {
 	GetTool(ctx context.Context, toolID string) (*ags.SandboxTool, error)
-	GetInstance(ctx context.Context, instanceID string) (*ags.SandboxInstance, error)
-	DeleteTool(ctx context.Context, toolID string) error
-	DeleteInstance(ctx context.Context, instanceID string) error
 	Call(ctx context.Context, action string, request map[string]any) (any, error)
 }
 
@@ -43,8 +35,8 @@ func Module() command.Module {
 		ID:           "instance.debug",
 		Path:         []string{"instance", "debug"},
 		Use:          "debug <tool-id>",
-		Short:        "Create a debug instance from an existing tool",
-		Long:         "Create a temporary debug tool from an existing tool, wait for it to be ready, then start a debug instance.",
+		Short:        "Create a debug tool from an existing tool",
+		Long:         "Create a debug tool by copying an existing tool and replacing its startup command with /envd.",
 		SupportsJSON: true,
 		Args: []command.ArgSpec{
 			{Name: "tool-id", Required: true, Description: "Source sandbox tool ID."},
@@ -52,13 +44,12 @@ func Module() command.Module {
 		Flags: []command.FlagSpec{
 			{Name: "debug-tool-name", Usage: "Name for the created debug tool", Type: command.FlagString, Workflow: true},
 			{Name: "description", Usage: "Description for the created debug tool", Type: command.FlagString, Workflow: true},
-			{Name: "timeout", Usage: "Instance lifetime timeout for the created debug instance", Type: command.FlagString, Default: defaultTimeout, Workflow: true},
 			{Name: "client-token", Usage: "Client token for duplicate creation protection", Type: command.FlagString, Workflow: true},
 		},
 		Output: command.OutputSpec{
-			DataType:    "DebugInstanceResult",
-			Description: "Created debug tool and ready instance details.",
-			Effects:     []string{"create:tool", "create:instance"},
+			DataType:    "DebugToolResult",
+			Description: "Created debug tool details.",
+			Effects:     []string{"create:tool"},
 		},
 	}
 	return command.Module{
@@ -114,11 +105,6 @@ func runDebug(ctx context.Context, req command.Request, deps command.Deps, cp Co
 		)
 	}
 
-	instanceTimeout := stringFlag(req, "timeout")
-	if strings.TrimSpace(instanceTimeout) == "" {
-		instanceTimeout = defaultTimeout
-	}
-
 	debugToolName := stringFlag(req, "debug-tool-name")
 	if strings.TrimSpace(debugToolName) == "" {
 		debugToolName = defaultDebugToolName(derefString(sourceTool.ToolName), sourceToolID, deps.Now())
@@ -139,144 +125,28 @@ func runDebug(ctx context.Context, req command.Request, deps command.Deps, cp Co
 	}
 
 	toolID := responseToolID(resp)
-	if strings.TrimSpace(toolID) == "" {
-		return nil, fmt.Errorf("no tool id returned from CreateSandboxTool")
-	}
-	if _, err := waitForToolReady(ctx, cp, toolID); err != nil {
-		cleanupDebugResources(deps, cp, "", toolID)
-		return nil, err
-	}
-
-	startResp, err := cp.Call(ctx, "StartSandboxInstance", map[string]any{
-		"ToolId":  toolID,
-		"Timeout": instanceTimeout,
-	})
-	if err != nil {
-		cleanupDebugResources(deps, cp, "", toolID)
-		return nil, err
-	}
-	instanceID, _ := responseInstance(startResp)
-	if strings.TrimSpace(instanceID) == "" {
-		cleanupDebugResources(deps, cp, "", toolID)
-		return nil, fmt.Errorf("no instance id returned from StartSandboxInstance")
-	}
-	instance, err := waitForInstanceRunning(ctx, cp, instanceID)
-	if err != nil {
-		cleanupDebugResources(deps, cp, instanceID, toolID)
-		return nil, err
-	}
-
-	connection := connectionData(instanceID)
 	data := map[string]any{
 		"SourceToolId":   sourceToolID,
 		"SourceToolName": derefString(sourceTool.ToolName),
 		"ToolId":         toolID,
 		"ToolName":       debugToolName,
-		"InstanceId":     instanceID,
-		"Instance":       instance,
-		"Status":         derefString(instance.Status),
-		"Timeout":        instanceTimeout,
-		"Connection":     connection,
 		"Command":        []string{envdMountPath},
 		"AddedMount":     addedMount,
 	}
 	return &command.Result{
-		Data: data,
-		Effects: []output.Effect{
-			{Kind: "create", Resource: "tool", Id: toolID},
-			{Kind: "create", Resource: "instance", Id: instanceID},
-		},
+		Data:    data,
+		Effects: []output.Effect{{Kind: "create", Resource: "tool", Id: toolID}},
 		Text: func(w io.Writer) {
-			fmt.Fprintf(w, "Debug instance ready: %s\n", instanceID)
-			instanceview.PrintKV(w, []instanceview.KeyValue{
-				{Key: "InstanceID", Value: instanceID},
-				{Key: "Status", Value: derefString(instance.Status)},
-				{Key: "ToolID", Value: toolID},
-				{Key: "ToolName", Value: debugToolName},
-				{Key: "SourceToolID", Value: sourceToolID},
-				{Key: "Timeout", Value: instanceTimeout},
-				{Key: "Login", Value: connection["Login"]},
-				{Key: "Proxy", Value: connection["Proxy"]},
-				{Key: "Command", Value: envdMountPath},
-				{Key: "AddedMount", Value: fmt.Sprintf("%s:%s -> %s", envdImageRef, envdImageSubPath, envdMountPath)},
+			fmt.Fprintf(w, "Debug tool created: %s\n", toolID)
+			printKV(w, []kv{
+				{key: "ID", value: toolID},
+				{key: "Name", value: debugToolName},
+				{key: "SourceToolID", value: sourceToolID},
+				{key: "Command", value: envdMountPath},
+				{key: "AddedMount", value: fmt.Sprintf("%s:%s -> %s", envdImageRef, envdImageSubPath, envdMountPath)},
 			})
 		},
 	}, nil
-}
-
-func waitForToolReady(ctx context.Context, cp ControlPlane, toolID string) (*ags.SandboxTool, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, debugReadyTimeout)
-	defer cancel()
-	for {
-		tool, err := cp.GetTool(waitCtx, toolID)
-		if err != nil {
-			return nil, err
-		}
-		status := strings.ToUpper(derefString(tool.Status))
-		switch status {
-		case "ACTIVE", "READY":
-			return tool, nil
-		case "FAILED":
-			return nil, fmt.Errorf("debug tool %s failed to become ready (status: %s)", toolID, status)
-		}
-		if err := waitBeforeRetry(waitCtx); err != nil {
-			return nil, fmt.Errorf("timed out waiting for debug tool %s to become ready: %w", toolID, err)
-		}
-	}
-}
-
-func waitForInstanceRunning(ctx context.Context, cp ControlPlane, instanceID string) (*ags.SandboxInstance, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, debugReadyTimeout)
-	defer cancel()
-	for {
-		instance, err := cp.GetInstance(waitCtx, instanceID)
-		if err != nil {
-			return nil, err
-		}
-		status := strings.ToUpper(derefString(instance.Status))
-		switch status {
-		case "RUNNING":
-			return instance, nil
-		case "FAILED", "STOPPED", "STOP_FAILED":
-			return nil, fmt.Errorf("debug instance %s failed to become ready (status: %s)", instanceID, status)
-		}
-		if err := waitBeforeRetry(waitCtx); err != nil {
-			return nil, fmt.Errorf("timed out waiting for debug instance %s to become ready: %w", instanceID, err)
-		}
-	}
-}
-
-func waitBeforeRetry(ctx context.Context) error {
-	timer := time.NewTimer(debugPollInterval)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func cleanupDebugResources(deps command.Deps, cp ControlPlane, instanceID, toolID string) {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), debugCleanupWait)
-	defer cancel()
-	if strings.TrimSpace(instanceID) != "" {
-		if err := cp.DeleteInstance(cleanupCtx, instanceID); err != nil {
-			fmt.Fprintf(deps.IO.ErrOut, "Warning: failed to cleanup debug instance %s: %v\n", instanceID, err)
-		}
-	}
-	if strings.TrimSpace(toolID) != "" {
-		if err := cp.DeleteTool(cleanupCtx, toolID); err != nil {
-			fmt.Fprintf(deps.IO.ErrOut, "Warning: failed to cleanup debug tool %s: %v\n", toolID, err)
-		}
-	}
-}
-
-func connectionData(instanceID string) map[string]string {
-	return map[string]string{
-		"Login": fmt.Sprintf("agr instance login %s", instanceID),
-		"Proxy": fmt.Sprintf("agr instance proxy %s", instanceID),
-	}
 }
 
 func buildCreateRequest(sourceTool *ags.SandboxTool, toolName, description, clientToken string, addedMount map[string]any) (map[string]any, error) {
@@ -423,37 +293,32 @@ func responseToolID(resp any) string {
 	}
 }
 
-func responseInstance(resp any) (string, *ags.SandboxInstance) {
-	switch value := resp.(type) {
-	case *ags.StartSandboxInstanceResponseParams:
-		if value.Instance == nil {
-			return "", nil
-		}
-		return derefString(value.Instance.InstanceId), value.Instance
-	case map[string]any:
-		instanceValue, ok := value["Instance"]
-		if !ok {
-			if id, ok := value["InstanceId"]; ok && id != nil {
-				return fmt.Sprint(id), nil
-			}
-			return "", nil
-		}
-		var instance ags.SandboxInstance
-		if err := jsonRoundTrip(instanceValue, &instance); err != nil {
-			return "", nil
-		}
-		return derefString(instance.InstanceId), &instance
-	default:
-		return "", nil
-	}
-}
-
 func jsonRoundTrip(src any, dst any) error {
 	raw, err := json.Marshal(src)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(raw, dst)
+}
+
+type kv struct {
+	key   string
+	value string
+}
+
+func printKV(w io.Writer, pairs []kv) {
+	maxLen := 0
+	for _, pair := range pairs {
+		if len(pair.key) > maxLen {
+			maxLen = len(pair.key)
+		}
+	}
+	for _, pair := range pairs {
+		if pair.value == "" {
+			continue
+		}
+		fmt.Fprintf(w, "%-*s  %s\n", maxLen, pair.key+":", pair.value)
+	}
 }
 
 func stringFlag(req command.Request, name string) string {
