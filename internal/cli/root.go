@@ -281,12 +281,37 @@ func classifyCLIError(err error) *output.CLIError {
 	return cliErr
 }
 
+// commandSpecificUsageHint returns a tailored hint for unknown-flag style usage
+// errors on commands where the generic --help pointer is too vague to be
+// actionable. Returns "" when no command-specific hint applies.
+func commandSpecificUsageHint(cmd *cobra.Command, err error) string {
+	if cmd == nil || err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "unknown flag") && !strings.Contains(msg, "unknown shorthand") {
+		return ""
+	}
+	switch canonicalCommandID(cmd) {
+	case "instance.file.upload":
+		return "upload uses positional paths; use: agr instance file upload <instance-id> <local-path|-> <remote-path>"
+	case "instance.file.download":
+		return "download uses positional paths; use: agr instance file download <instance-id> <remote-path> <local-path|->"
+	}
+	return ""
+}
+
 func renderExecuteError(cmd *cobra.Command, err error) {
 	var envDone *envelopeAlreadyWritten
 	if errors.As(err, &envDone) {
 		os.Exit(envDone.code)
 	}
 	cliErr := classifyCLIError(err)
+	if cliErr != nil && cliErr.Failure != nil && cliErr.Failure.Code == "INVALID_USAGE" {
+		if hint := commandSpecificUsageHint(cmd, err); hint != "" {
+			cliErr.Failure.Hint = hint
+		}
+	}
 	debugf("Debug: error=%T: %v\n", err, err)
 	if isJSON() || hasRawOutputFlag("json") {
 		cmdID := commandIDForJSONError(cmd, os.Args[1:])
