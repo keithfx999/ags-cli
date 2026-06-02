@@ -135,6 +135,41 @@ func TestModuleDoesNotCopyClientToken(t *testing.T) {
 	}
 }
 
+func TestModuleFiltersInheritedQcsTags(t *testing.T) {
+	source := sourceTool("sdt-source")
+	source.Tags = []*ags.Tag{
+		{Key: strPtr("env"), Value: strPtr("unit")},
+		{Key: strPtr("qcs:project-123"), Value: strPtr("internal")},
+		{Key: strPtr("qcs-region-gz"), Value: strPtr("internal")},
+	}
+	cp := &fakeControlPlane{sourceTool: source}
+	runFork(t, cp, command.Request{
+		Args: []string{"sdt-source"},
+		Flags: map[string]command.FlagValue{
+			"tool-name": {Name: "tool-name", Type: command.FlagString, String: "copy", Changed: true},
+		},
+	})
+	tags := cp.request["Tags"].([]*ags.Tag)
+	if len(tags) != 1 || *tags[0].Key != "env" {
+		t.Fatalf("Tags = %#v, want only env tag", tags)
+	}
+}
+
+func TestModuleOmitsTagsWhenOnlyInheritedQcsTagsRemain(t *testing.T) {
+	source := sourceTool("sdt-source")
+	source.Tags = []*ags.Tag{{Key: strPtr("qcs:project-123"), Value: strPtr("internal")}}
+	cp := &fakeControlPlane{sourceTool: source}
+	runFork(t, cp, command.Request{
+		Args: []string{"sdt-source"},
+		Flags: map[string]command.FlagValue{
+			"tool-name": {Name: "tool-name", Type: command.FlagString, String: "copy", Changed: true},
+		},
+	})
+	if _, ok := cp.request["Tags"]; ok {
+		t.Fatalf("Tags should be omitted when only qcs tags remain: %#v", cp.request["Tags"])
+	}
+}
+
 func TestModuleRejectsMissingSourceID(t *testing.T) {
 	cp := &fakeControlPlane{}
 	err := runForkErr(t, cp, command.Request{

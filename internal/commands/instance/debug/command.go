@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/internal/tooltags"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 )
@@ -166,8 +167,8 @@ func buildCreateRequest(sourceTool *ags.SandboxTool, toolName, description, clie
 		"StorageMounts":        storageMounts,
 		"CustomConfiguration":  customConfig,
 	}
-	if len(sourceTool.Tags) > 0 {
-		req["Tags"] = sourceTool.Tags
+	if tags := tooltags.FilterInheritedTags(sourceTool.Tags); len(tags) > 0 {
+		req["Tags"] = tags
 	}
 	if sourceTool.RoleArn != nil && *sourceTool.RoleArn != "" {
 		req["RoleArn"] = *sourceTool.RoleArn
