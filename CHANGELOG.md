@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Bug Fixes
+- `agr instance login` no longer treats a remote shell exit as a CLI
+  failure: when the user types `exit` the command now propagates the
+  remote shell's exit code as the CLI process exit status without
+  rendering an error envelope, mirroring `ssh` behavior. Previously a
+  bash session whose last command was Ctrl-C'd (exit 130) was surfaced
+  to the user as `internal error (INTERNAL_ERROR)`. (Upstream-Issue: 13)
 - Text-mode error output now renders `Code`, `Message`, and `RequestId`
   on dedicated, uniformly labeled lines (instead of the previous
   `Error: <message> (<code>)` format), so all three service-side
