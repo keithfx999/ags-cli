@@ -5,6 +5,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -329,17 +330,31 @@ func renderExecuteError(cmd *cobra.Command, err error) {
 		os.Exit(cliErr.ExitCode)
 	}
 	failure := withIdempotencyHint(commandIDForJSONError(cmd, os.Args[1:]), cliErr.Failure)
-	fmt.Fprintf(ios.ErrOut, "Error: %s (%s)\n", failure.Message, failure.Code)
+	writeFailureText(ios.ErrOut, failure)
+	os.Exit(cliErr.ExitCode)
+}
+
+// writeFailureText renders a Failure to a human-readable, line-per-field
+// stderr block. Code/Message/RequestId are surfaced uniformly so all three
+// service-side identifiers needed for a TencentCloud support handoff appear
+// on their own labeled line. Hint and Retryable follow when present.
+func writeFailureText(w io.Writer, failure *output.Failure) {
+	if failure == nil {
+		return
+	}
+	fmt.Fprintf(w, "Error: %s\n", failure.Message)
+	if failure.Code != "" {
+		fmt.Fprintf(w, "Code: %s\n", failure.Code)
+	}
 	if requestID := failureRequestID(failure); requestID != "" {
-		fmt.Fprintf(ios.ErrOut, "RequestId: %s\n", requestID)
+		fmt.Fprintf(w, "RequestId: %s\n", requestID)
 	}
 	if failure.Hint != "" {
-		fmt.Fprintf(ios.ErrOut, "Hint: %s\n", failure.Hint)
+		fmt.Fprintf(w, "Hint: %s\n", failure.Hint)
 	}
 	if failure.Retryable {
-		fmt.Fprintln(ios.ErrOut, "Retryable: yes")
+		fmt.Fprintln(w, "Retryable: yes")
 	}
-	os.Exit(cliErr.ExitCode)
 }
 
 func failureRequestID(failure *output.Failure) string {
