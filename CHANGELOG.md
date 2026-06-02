@@ -4,24 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Bug Fixes
-- `agr instance login` no longer treats a remote shell exit as a CLI
-  failure: when the user types `exit` the command now propagates the
-  remote shell's exit code as the CLI process exit status without
-  rendering an error envelope, mirroring `ssh` behavior. Previously a
-  bash session whose last command was Ctrl-C'd (exit 130) was surfaced
-  to the user as `internal error (INTERNAL_ERROR)`. (Upstream-Issue: 13)
-- Text-mode error output now renders `Code`, `Message`, and `RequestId`
-  on dedicated, uniformly labeled lines (instead of the previous
-  `Error: <message> (<code>)` format), so all three service-side
-  identifiers needed for a TencentCloud support handoff are easy to
-  read and copy-paste.
-- `agr version` now prints `n/a (go install)` instead of the bare
-  literal `unknown` for `commit` and `built` when the binary was
-  produced by `go install <module>@<tag>` (Go does not stamp VCS
-  metadata for module-cache builds). Pseudo-version installs and
-  ldflags-stamped release binaries are unchanged. (Upstream-Issue: 6)
-
 ## [0.6.0] - 2026-06-02
 
 ### Breaking Changes
@@ -52,12 +34,25 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 - Service-side TencentCloud errors now include `RequestId` alongside
-  `Code` and `Message` in CLI error output.
+  `Code` and `Message` in CLI error output, and text-mode error output
+  renders `Error`, `Code`, and `RequestId` on dedicated, uniformly
+  labeled lines (instead of the previous `Error: <message> (<code>)`
+  format), so all three service-side identifiers needed for a
+  TencentCloud support handoff are easy to read and copy-paste.
 - `agr instance login` now reports PTY/envd data-plane session failures
-  explicitly instead of collapsing them into a generic internal error.
+  explicitly instead of collapsing them into a generic internal error,
+  and no longer treats a remote shell exit as a CLI failure: when the
+  user types `exit` the command now propagates the remote shell's exit
+  code as the CLI process exit status without rendering an error
+  envelope, mirroring `ssh` behavior. (Upstream-Issue: 13)
 - `agr version` now extracts commit hash and build timestamp from Go
   module pseudo-versions when VCS build info is unavailable (e.g.
-  binaries installed via `go install @latest`). (Upstream-Issue: 6)
+  binaries installed via `go install @latest`), and prints
+  `n/a (go install)` instead of the bare literal `unknown` for `commit`
+  and `built` when the binary was produced by
+  `go install <module>@<tag>` (Go does not stamp VCS metadata for
+  module-cache builds). Pseudo-version installs and ldflags-stamped
+  release binaries are unchanged. (Upstream-Issue: 6)
 - `--jq` expressions now operate on the `Data` payload directly instead
   of the wrapping envelope, consistent with `gh --jq` and `aws --query`
   behavior (e.g. `.InstanceId` instead of `.Data.InstanceId`).
