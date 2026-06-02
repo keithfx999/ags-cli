@@ -405,17 +405,18 @@ func registeredSchemaSeeds() []CommandSchema {
 
 func schemaFromDescriptor(desc command.Descriptor) CommandSchema {
 	spec := desc.Spec
+	mutation, createsResource, requiresAuth := schemaEffects(spec.Output.Effects)
 	return CommandSchema{
 		Name:            spec.ID,
 		Kind:            "command",
 		Summary:         spec.Short,
 		Aliases:         append([]string(nil), spec.Aliases...),
-		Mutation:        false,
-		CreatesResource: false,
+		Mutation:        mutation,
+		CreatesResource: createsResource,
 		Idempotency:     "none",
 		SupportsDryRun:  false,
 		Interactive:     !spec.SupportsJSON && !spec.SupportsNDJSON,
-		RequiresAuth:    false,
+		RequiresAuth:    requiresAuth,
 		SupportsJson:    spec.SupportsJSON,
 		SupportsNdjson:  spec.SupportsNDJSON,
 		SupportsJq:      spec.SupportsJSON || spec.SupportsNDJSON,
@@ -425,6 +426,23 @@ func schemaFromDescriptor(desc command.Descriptor) CommandSchema {
 		Examples:        append([]string(nil), spec.Examples...),
 		Output:          spec.Output.DataType,
 	}
+}
+
+func schemaEffects(effects []string) (mutation, createsResource, requiresAuth bool) {
+	if len(effects) > 0 {
+		requiresAuth = true
+	}
+	for _, effect := range effects {
+		kind, _, _ := strings.Cut(effect, ":")
+		switch kind {
+		case "create":
+			mutation = true
+			createsResource = true
+		case "delete":
+			mutation = true
+		}
+	}
+	return mutation, createsResource, requiresAuth
 }
 
 func commandArgsToSchema(args []command.ArgSpec) []ArgSchema {
