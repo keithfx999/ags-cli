@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Bug Fixes
+- Text-mode error output now renders `Code`, `Message`, and `RequestId`
+  on dedicated, uniformly labeled lines (instead of the previous
+  `Error: <message> (<code>)` format), so all three service-side
+  identifiers needed for a TencentCloud support handoff are easy to
+  read and copy-paste.
+
 ## [0.6.0] - 2026-06-02
 
 ### Breaking Changes
