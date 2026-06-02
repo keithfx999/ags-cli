@@ -9,95 +9,42 @@ import (
 	"time"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
-	"github.com/TencentCloudAgentRuntime/ags-cli/internal/iostreams"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 )
 
 type fakeControlPlane struct {
-	sourceTool        *ags.SandboxTool
-	debugTool         *ags.SandboxTool
-	instance          *ags.SandboxInstance
-	getIDs            []string
-	actions           []string
-	requests          []map[string]any
-	deletes           []string
-	createResp        any
-	startResp         any
-	err               error
-	toolReadyErr      error
-	instanceReadyErr  error
-	deleteToolErr     error
-	deleteInstanceErr error
+	tool    *ags.SandboxTool
+	getID   string
+	action  string
+	request map[string]any
+	resp    any
+	err     error
 }
 
 func (f *fakeControlPlane) GetTool(_ context.Context, toolID string) (*ags.SandboxTool, error) {
-	f.getIDs = append(f.getIDs, "tool:"+toolID)
+	f.getID = toolID
 	if f.err != nil {
 		return nil, f.err
 	}
-	if toolID == "sdt-source" {
-		return f.sourceTool, nil
-	}
-	if f.toolReadyErr != nil {
-		return nil, f.toolReadyErr
-	}
-	if f.debugTool != nil {
-		return f.debugTool, nil
-	}
-	active := "ACTIVE"
-	return &ags.SandboxTool{ToolId: strPtr(toolID), ToolName: strPtr("source-debug"), Status: &active}, nil
+	return f.tool, nil
 }
 
 func (f *fakeControlPlane) Call(_ context.Context, action string, request map[string]any) (any, error) {
-	f.actions = append(f.actions, action)
-	f.requests = append(f.requests, request)
+	f.action = action
+	f.request = request
 	if f.err != nil {
 		return nil, f.err
 	}
-	switch action {
-	case "CreateSandboxTool":
-		if f.createResp != nil {
-			return f.createResp, nil
-		}
-		id := "sdt-debug"
-		return &ags.CreateSandboxToolResponseParams{ToolId: &id}, nil
-	case "StartSandboxInstance":
-		if f.startResp != nil {
-			return f.startResp, nil
-		}
-		id := "ins-debug"
-		status := "STARTING"
-		return &ags.StartSandboxInstanceResponseParams{Instance: &ags.SandboxInstance{InstanceId: &id, Status: &status}}, nil
-	default:
-		return nil, errors.New("unexpected action: " + action)
+	if f.resp != nil {
+		return f.resp, nil
 	}
+	id := "sdt-debug"
+	return &ags.CreateSandboxToolResponseParams{ToolId: &id}, nil
 }
 
-func (f *fakeControlPlane) GetInstance(_ context.Context, instanceID string) (*ags.SandboxInstance, error) {
-	f.getIDs = append(f.getIDs, "instance:"+instanceID)
-	if f.instanceReadyErr != nil {
-		return nil, f.instanceReadyErr
-	}
-	if f.instance != nil {
-		return f.instance, nil
-	}
-	running := "RUNNING"
-	return &ags.SandboxInstance{InstanceId: strPtr(instanceID), ToolId: strPtr("sdt-debug"), ToolName: strPtr("source-debug"), Status: &running}, nil
-}
-
-func (f *fakeControlPlane) DeleteTool(_ context.Context, toolID string) error {
-	f.deletes = append(f.deletes, "tool:"+toolID)
-	return f.deleteToolErr
-}
-
-func (f *fakeControlPlane) DeleteInstance(_ context.Context, instanceID string) error {
-	f.deletes = append(f.deletes, "instance:"+instanceID)
-	return f.deleteInstanceErr
-}
-
-func TestModuleRunsFullDebugWorkflow(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool()}
+func TestModuleBuildsDebugToolRequest(t *testing.T) {
+	cp := &fakeControlPlane{tool: sourceTool()}
 	runtime, err := Module().Build(command.Deps{
 		ControlPlane: cp,
 		Now:          func() time.Time { return time.Date(2026, 6, 1, 10, 11, 12, 0, time.UTC) },
@@ -115,20 +62,19 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if got, want := strings.Join(cp.getIDs, ","), "tool:sdt-source,tool:sdt-debug,instance:ins-debug"; got != want {
-		t.Fatalf("lookups = %q, want %q", got, want)
+	if cp.getID != "sdt-source" {
+		t.Fatalf("GetTool id = %q, want sdt-source", cp.getID)
 	}
-	if got, want := strings.Join(cp.actions, ","), "CreateSandboxTool,StartSandboxInstance"; got != want {
-		t.Fatalf("actions = %q, want %q", got, want)
+	if cp.action != "CreateSandboxTool" {
+		t.Fatalf("action = %q, want CreateSandboxTool", cp.action)
 	}
-	createReq := cp.requests[0]
-	if createReq["ToolName"] != "source-debug-20260601101112" {
-		t.Fatalf("ToolName = %#v", createReq["ToolName"])
+	if cp.request["ToolName"] != "source-debug-20260601101112" {
+		t.Fatalf("ToolName = %#v", cp.request["ToolName"])
 	}
-	if createReq["ToolType"] != "custom" || createReq["DefaultTimeout"] != "300s" || createReq["ClientToken"] != "token-1" {
-		t.Fatalf("request = %#v", createReq)
+	if cp.request["ToolType"] != "custom" || cp.request["DefaultTimeout"] != "300s" || cp.request["ClientToken"] != "token-1" {
+		t.Fatalf("request = %#v", cp.request)
 	}
-	custom := createReq["CustomConfiguration"].(map[string]any)
+	custom := cp.request["CustomConfiguration"].(map[string]any)
 	if _, ok := custom["ImageDigest"]; ok {
 		t.Fatalf("CustomConfiguration leaked ImageDigest: %#v", custom)
 	}
@@ -139,7 +85,7 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 		t.Fatalf("Args = %#v, want empty", custom["Args"])
 	}
 
-	mounts := createReq["StorageMounts"].([]map[string]any)
+	mounts := cp.request["StorageMounts"].([]map[string]any)
 	if len(mounts) != 2 {
 		t.Fatalf("StorageMounts len = %d, want 2: %#v", len(mounts), mounts)
 	}
@@ -154,30 +100,23 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	if image["Reference"] != envdImageRef || image["ImageRegistryType"] != envdRegistryType || image["SubPath"] != envdImageSubPath {
 		t.Fatalf("image mount = %#v", image)
 	}
-	startReq := cp.requests[1]
-	if startReq["ToolId"] != "sdt-debug" || startReq["Timeout"] != defaultTimeout {
-		t.Fatalf("start request = %#v", startReq)
-	}
 
 	data := result.Data.(map[string]any)
-	if data["ToolId"] != "sdt-debug" || data["SourceToolId"] != "sdt-source" || data["InstanceId"] != "ins-debug" || data["Status"] != "RUNNING" {
+	if data["ToolId"] != "sdt-debug" || data["SourceToolId"] != "sdt-source" {
 		t.Fatalf("data = %#v", data)
 	}
-	if data["Connection"].(map[string]string)["Login"] != "agr instance login ins-debug" {
-		t.Fatalf("connection = %#v", data["Connection"])
-	}
-	if len(result.Effects) != 2 || result.Effects[0].Resource != "tool" || result.Effects[1].Resource != "instance" {
+	if len(result.Effects) != 1 || result.Effects[0].Kind != "create" || result.Effects[0].Resource != "tool" {
 		t.Fatalf("effects = %#v", result.Effects)
 	}
 	var text bytes.Buffer
 	result.Text(&text)
-	if !strings.Contains(text.String(), "Debug instance ready: ins-debug") || !strings.Contains(text.String(), "agr instance login ins-debug") || !strings.Contains(text.String(), envdImageRef) {
+	if !strings.Contains(text.String(), "Debug tool created: sdt-debug") || !strings.Contains(text.String(), envdImageRef) {
 		t.Fatalf("text = %q", text.String())
 	}
 }
 
 func TestModuleHonorsExplicitNameAndDescription(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool()}
+	cp := &fakeControlPlane{tool: sourceTool()}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
@@ -192,90 +131,8 @@ func TestModuleHonorsExplicitNameAndDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if cp.requests[0]["ToolName"] != "custom-debug" || cp.requests[0]["Description"] != "custom description" {
-		t.Fatalf("request = %#v", cp.requests[0])
-	}
-}
-
-func TestModulePassesInstanceTimeout(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool()}
-	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-	_, err = runtime.Handler.Run(context.Background(), command.Request{
-		ArgValues: map[string]string{"tool-id": "sdt-source"},
-		Flags: map[string]command.FlagValue{
-			"timeout": {Name: "timeout", Type: command.FlagString, String: "30m", Changed: true},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if got := cp.requests[1]["Timeout"]; got != "30m" {
-		t.Fatalf("Timeout = %#v, want 30m", got)
-	}
-}
-
-func TestModuleCleansUpOnToolReadyFailure(t *testing.T) {
-	failed := "FAILED"
-	cp := &fakeControlPlane{
-		sourceTool: sourceTool(),
-		debugTool:  &ags.SandboxTool{ToolId: strPtr("sdt-debug"), Status: &failed},
-	}
-	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-	_, err = runtime.Handler.Run(context.Background(), command.Request{ArgValues: map[string]string{"tool-id": "sdt-source"}})
-	if err == nil || !strings.Contains(err.Error(), "debug tool sdt-debug failed") {
-		t.Fatalf("error = %v, want tool ready failure", err)
-	}
-	if got, want := strings.Join(cp.deletes, ","), "tool:sdt-debug"; got != want {
-		t.Fatalf("deletes = %q, want %q", got, want)
-	}
-}
-
-func TestModuleCleansUpInstanceThenToolOnInstanceFailure(t *testing.T) {
-	failed := "FAILED"
-	cp := &fakeControlPlane{
-		sourceTool: sourceTool(),
-		instance:   &ags.SandboxInstance{InstanceId: strPtr("ins-debug"), Status: &failed},
-	}
-	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-	_, err = runtime.Handler.Run(context.Background(), command.Request{ArgValues: map[string]string{"tool-id": "sdt-source"}})
-	if err == nil || !strings.Contains(err.Error(), "debug instance ins-debug failed") {
-		t.Fatalf("error = %v, want instance ready failure", err)
-	}
-	if got, want := strings.Join(cp.deletes, ","), "instance:ins-debug,tool:sdt-debug"; got != want {
-		t.Fatalf("deletes = %q, want %q", got, want)
-	}
-}
-
-func TestModuleReturnsCleanupWarnings(t *testing.T) {
-	ios, _, _, stderr := iostreams.Test()
-	failed := "FAILED"
-	cp := &fakeControlPlane{
-		sourceTool:        sourceTool(),
-		instance:          &ags.SandboxInstance{InstanceId: strPtr("ins-debug"), Status: &failed},
-		deleteInstanceErr: errors.New("delete instance boom"),
-		deleteToolErr:     errors.New("delete tool boom"),
-	}
-	runtime, err := Module().Build(command.Deps{ControlPlane: cp, IO: ios})
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-	_, err = runtime.Handler.Run(context.Background(), command.Request{ArgValues: map[string]string{"tool-id": "sdt-source"}})
-	if err == nil || !strings.Contains(err.Error(), "debug instance ins-debug failed") {
-		t.Fatalf("error = %v, want primary instance failure", err)
-	}
-	warnings := stderr.String()
-	if !strings.Contains(warnings, "Warning: failed to cleanup debug instance ins-debug: delete instance boom") ||
-		!strings.Contains(warnings, "Warning: failed to cleanup debug tool sdt-debug: delete tool boom") {
-		t.Fatalf("stderr = %q", warnings)
+	if cp.request["ToolName"] != "custom-debug" || cp.request["Description"] != "custom description" {
+		t.Fatalf("request = %#v", cp.request)
 	}
 }
 
@@ -319,7 +176,7 @@ func TestModuleOmitsTagsWhenOnlyInheritedQcsTagsRemain(t *testing.T) {
 }
 
 func TestModuleRejectsMissingToolID(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool()}
+	cp := &fakeControlPlane{tool: sourceTool()}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
@@ -341,7 +198,7 @@ func TestModuleRejectsDebugMountConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tool := sourceTool()
 			tool.StorageMounts = []*ags.StorageMount{tc.mount}
-			cp := &fakeControlPlane{sourceTool: tool}
+			cp := &fakeControlPlane{tool: tool}
 			runtime, err := Module().Build(command.Deps{ControlPlane: cp})
 			if err != nil {
 				t.Fatalf("Build returned error: %v", err)
@@ -350,7 +207,7 @@ func TestModuleRejectsDebugMountConflict(t *testing.T) {
 			if cliErr, ok := err.(*output.CLIError); !ok || cliErr.Failure.Code != "DEBUG_MOUNT_CONFLICT" {
 				t.Fatalf("error = %#v, want DEBUG_MOUNT_CONFLICT", err)
 			}
-			if len(cp.actions) != 0 {
+			if cp.action != "" {
 				t.Fatalf("Call executed despite conflict")
 			}
 		})
@@ -360,7 +217,7 @@ func TestModuleRejectsDebugMountConflict(t *testing.T) {
 func TestModuleRejectsSourceWithoutRoleArn(t *testing.T) {
 	tool := sourceTool()
 	tool.RoleArn = nil
-	cp := &fakeControlPlane{sourceTool: tool}
+	cp := &fakeControlPlane{tool: tool}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
@@ -369,13 +226,13 @@ func TestModuleRejectsSourceWithoutRoleArn(t *testing.T) {
 	if cliErr, ok := err.(*output.CLIError); !ok || cliErr.Failure.Code != "DEBUG_ROLE_ARN_REQUIRED" {
 		t.Fatalf("error = %#v, want DEBUG_ROLE_ARN_REQUIRED", err)
 	}
-	if len(cp.actions) != 0 {
+	if cp.action != "" {
 		t.Fatalf("Call executed despite missing RoleArn")
 	}
 }
 
 func TestModuleReturnsControlPlaneErrors(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool(), err: errors.New("boom")}
+	cp := &fakeControlPlane{tool: sourceTool(), err: errors.New("boom")}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)

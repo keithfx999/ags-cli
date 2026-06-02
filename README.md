@@ -196,22 +196,19 @@ The JSON output of these commands includes
 `Data.ExecutionContext.TemporarySandboxInstance` and
 `Data.ExecutionContext.Cleanup` so scripts can inspect the workflow.
 
-## Debug instance creation
+## Debug tool creation
 
-Use `agr instance debug <tool-id>` to create a debug instance for an existing
-tool. The command creates a temporary debug tool that keeps the source tool
-configuration, changes the startup command to `/envd`, mounts
+Use `agr instance debug <tool-id>` to create a debug copy of an existing
+tool. The new tool keeps the source tool configuration, changes the
+startup command to `/envd`, and mounts
 `ccr.ccs.tencentyun.com/ags-image/envd:v0.5.14` from `/usr/bin/envd` to
-`/envd`, waits for that tool to be ready, then starts an instance from it.
-The source tool must have `RoleArn` configured because image storage mounts
-require it. `--timeout` controls the created instance lifetime and defaults
-to `1h`; readiness waits use the command's internal workflow timeout.
+`/envd`. The source tool must have `RoleArn` configured because image
+storage mounts require it.
 
 ```bash
-debug_instance_id=$(agr instance debug "$tool_id" \
+debug_tool_id=$(agr instance debug "$tool_id" \
   --debug-tool-name "my-tool-debug" \
-  --timeout 30m \
-  -o json --jq '.Data.InstanceId')
+  -o json --jq '.Data.ToolId')
 ```
 
 ## Cloud endpoint vs data-plane domain
@@ -254,7 +251,7 @@ agr instance update <id>         Update timeout/metadata
 agr instance pause <id>          Pause an instance
 agr instance resume <id>         Resume an instance
 agr instance delete <id>         Delete instance(s)
-agr instance debug <tool-id>     Create a debug instance from a tool
+agr instance debug <tool-id>     Create a debug tool from a tool
 
 agr instance code run <id>       Execute code in an existing instance
 agr instance exec <id> -- CMD    Execute shell command in an existing instance
