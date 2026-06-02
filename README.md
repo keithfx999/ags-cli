@@ -99,9 +99,11 @@ agr version
 
 The installed command name is `agr`.
 
-> **Note:** Binaries installed via `go install @tag` will not display the commit
-> hash or build timestamp in `agr version` output. Use `make build` or download
-> a pre-built release binary for full version information.
+> **Note:** Binaries installed via `go install @tag` show
+> `commit: n/a (go install)` and `built: n/a (go install)` in `agr version`
+> output — Go does not stamp VCS metadata for module-cache builds. Use
+> `make build` or download a pre-built release binary for the full commit
+> hash and build timestamp.
 
 ## Prerequisites
 
