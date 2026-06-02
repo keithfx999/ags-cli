@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Bug Fixes
+- `agr instance file upload` and `agr instance file download` now emit a
+  command-specific hint when an unknown flag (such as `--source` or
+  `--target`) is passed, pointing at the positional `<instance-id>
+  <local-path|-> <remote-path>` form instead of the generic
+  `agr --help` pointer.
+
 ## [0.6.0] - 2026-06-02
 
 ### Breaking Changes
