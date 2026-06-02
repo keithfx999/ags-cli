@@ -99,8 +99,10 @@ agr version
 
 安装后的命令名为 `agr`。
 
-> **注意：** 通过 `go install @tag` 安装的二进制在 `agr version` 中不会显示 commit
-> hash 和构建时间。若需完整版本信息，请使用 `make build` 或下载预编译包。
+> **注意：** 通过 `go install @tag` 安装的二进制在 `agr version` 中会显示
+> `commit: n/a (go install)` 和 `built: n/a (go install)`：Go 不会为模块缓存
+> 构建注入 VCS 元数据。若需完整 commit 哈希和构建时间，请使用 `make build`
+> 或下载预编译发布包。
 
 ## 前置条件
 

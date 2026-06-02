@@ -89,6 +89,22 @@ func resolvedVersionInfo() (string, string, string) {
 			}
 		}
 	}
+	// Last-resort fallback: when version came from a tagged release (i.e.
+	// we recognised a real semver from build info) but commit/buildTime
+	// are still the default "unknown", the binary was almost certainly
+	// produced by `go install <module>@<tag>` — Go does not stamp VCS
+	// metadata for module-cache builds. Replace the bare "unknown" with a
+	// self-explanatory marker so users do not read it as a release
+	// pipeline failure. Pre-built release binaries always inject ldflags
+	// and never reach this branch.
+	if version != "" && version != "dev" {
+		if commit == "" || commit == "unknown" {
+			commit = "n/a (go install)"
+		}
+		if buildTime == "" || buildTime == "unknown" {
+			buildTime = "n/a (go install)"
+		}
+	}
 	return version, commit, buildTime
 }
 

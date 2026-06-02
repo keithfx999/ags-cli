@@ -16,6 +16,11 @@ All notable changes to this project will be documented in this file.
   `Error: <message> (<code>)` format), so all three service-side
   identifiers needed for a TencentCloud support handoff are easy to
   read and copy-paste.
+- `agr version` now prints `n/a (go install)` instead of the bare
+  literal `unknown` for `commit` and `built` when the binary was
+  produced by `go install <module>@<tag>` (Go does not stamp VCS
+  metadata for module-cache builds). Pseudo-version installs and
+  ldflags-stamped release binaries are unchanged. (Upstream-Issue: 6)
 
 ## [0.6.0] - 2026-06-02
 
