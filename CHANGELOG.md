@@ -4,13 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Bug Fixes
-- `agr instance file upload` and `agr instance file download` now emit a
-  command-specific hint when an unknown flag (such as `--source` or
-  `--target`) is passed, pointing at the positional `<instance-id>
-  <local-path|-> <remote-path>` form instead of the generic
-  `agr --help` pointer.
-
 ## [0.6.0] - 2026-06-02
 
 ### Breaking Changes
@@ -56,6 +49,11 @@ All notable changes to this project will be documented in this file.
 - CI gofmt and changelog-gate failures resolved by formatting
   `internal/cli/flaghelp.go` and changing the `## [Unreleased]` heading
   to `## Unreleased` so it does not trip the version-heading regex.
+- `agr instance file upload` and `agr instance file download` now emit a
+  command-specific hint when an unknown flag (such as `--source` or
+  `--target`) is passed, pointing at the positional `<instance-id>
+  <local-path|-> <remote-path>` form instead of the generic
+  `agr --help` pointer. (Upstream-Issue: 20)
 
 ### Docs
 - `make go-install` target installs the binary to `$GOPATH/bin` with
