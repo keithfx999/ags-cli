@@ -8,6 +8,7 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/apicli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/internal/tooltags"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 )
@@ -158,8 +159,8 @@ func baseCreateRequestFromTool(tool *ags.SandboxTool) map[string]any {
 	if tool.DefaultTimeoutSeconds != nil {
 		req["DefaultTimeout"] = fmt.Sprintf("%ds", *tool.DefaultTimeoutSeconds)
 	}
-	if len(tool.Tags) > 0 {
-		req["Tags"] = tool.Tags
+	if tags := tooltags.FilterInheritedTags(tool.Tags); len(tags) > 0 {
+		req["Tags"] = tags
 	}
 	if len(tool.StorageMounts) > 0 {
 		req["StorageMounts"] = tool.StorageMounts

@@ -136,6 +136,45 @@ func TestModuleHonorsExplicitNameAndDescription(t *testing.T) {
 	}
 }
 
+func TestModuleFiltersInheritedQcsTags(t *testing.T) {
+	tool := sourceTool()
+	tool.Tags = []*ags.Tag{
+		{Key: strPtr("env"), Value: strPtr("unit")},
+		{Key: strPtr("qcs:project-123"), Value: strPtr("internal")},
+		{Key: strPtr("qcs-region-gz"), Value: strPtr("internal")},
+	}
+	cp := &fakeControlPlane{tool: tool}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{ArgValues: map[string]string{"tool-id": "sdt-source"}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	tags := cp.request["Tags"].([]*ags.Tag)
+	if len(tags) != 1 || *tags[0].Key != "env" {
+		t.Fatalf("Tags = %#v, want only env tag", tags)
+	}
+}
+
+func TestModuleOmitsTagsWhenOnlyInheritedQcsTagsRemain(t *testing.T) {
+	tool := sourceTool()
+	tool.Tags = []*ags.Tag{{Key: strPtr("qcs:project-123"), Value: strPtr("internal")}}
+	cp := &fakeControlPlane{tool: tool}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{ArgValues: map[string]string{"tool-id": "sdt-source"}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if _, ok := cp.request["Tags"]; ok {
+		t.Fatalf("Tags should be omitted when only qcs tags remain: %#v", cp.request["Tags"])
+	}
+}
+
 func TestModuleRejectsMissingToolID(t *testing.T) {
 	cp := &fakeControlPlane{tool: sourceTool()}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
