@@ -2,6 +2,39 @@
 
 本项目的所有重要更改都将记录在此文件中。
 
+## [0.6.0] - 2026-06-03
+
+### 破坏性变更
+- 本版本没有破坏性变更。
+
+### 新增
+- 完成 debug 工作流，支持等待 tool 就绪并创建实例
+- 新增分组命令示例
+- 支持 STS session token
+- 在命令帮助中显示复杂 flag 详情
+- 新增 sandbox tool fork 命令
+- 新增 debug tool 命令
+- 新增全页实例列表能力
+- 新增单个 flag 详细帮助机制
+
+### 修复
+- 完成 debug instance 工作流
+- 根据 Effects 推断 Mutation/CreatesResource/RequiresAuth
+- 克隆工具时过滤 qcs 标签
+- 修复 go install @tag 场景下 commit/built 显示 unknown 的问题
+- 正确传递远程 shell 退出状态
+- 统一 Code/Message/RequestId 文本渲染
+- upload/download 遇到未知 flag 时提示位置参数形式
+- live test 构建禁用 VCS stamping
+- 暴露云端请求 ID
+- 分类 PTY session 失败
+- 修复 gofmt 和 changelog gate 失败
+- 将 --jq 应用于 Data 字段而不是完整 envelope
+- 修复 agr version 输出中的 unknown commit/built
+
+### 文档
+- 本版本没有文档变更。
+
 ## [0.5.1] - 2026-05-29
 
 ### 破坏性变更
