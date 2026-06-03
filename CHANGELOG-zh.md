@@ -2,6 +2,40 @@
 
 本项目的所有重要更改都将记录在此文件中。
 
+## [0.6.0] - 2026-06-03
+
+### 破坏性变更
+- 本版本没有破坏性变更。
+
+### 新增
+- 支持在 `agr instance mobile connect` 中通过 `--port` 指定本地 ADB
+  隧道端口，不再只能使用自动分配的端口。
+- 支持通过 `--<flag> --help` 查看单个 flag 的详细帮助，并覆盖文本、
+  JSON 和 schema 输出。
+- 支持通过 `agr instance list --all` 拉取所有实例分页，并在聚合输出中
+  展示 region。
+- 支持通过 `agr instance debug` 基于已有沙箱工具创建调试工具。
+- 支持通过 `agr tool fork` 克隆沙箱工具，同时允许用户覆盖创建时配置。
+- 在标准命令帮助中展示复杂 flag 的 Format、Values 和 Examples。
+- 支持通过 `--token`、`TENCENTCLOUD_TOKEN` 和 `[auth].token` 使用腾讯云
+  STS session token。
+- 在帮助输出中展示分组命令示例，并通过 `agr schema` 暴露示例元数据。
+
+### 修复
+- 修复通过 `go install @latest` 或 `go install <module>@<tag>` 安装的二进制
+  版本信息中 commit 和 build 展示不清晰的问题。
+- 更清晰地展示 PTY 和 envd 登录失败，并将正常远端 shell 退出按类似 SSH
+  的会话退出处理。
+- 将 TencentCloud 的 `Code`、`Message` 和 `RequestId` 展示在独立错误行，
+  方便用户复制给支持团队排查。
+- 当 `agr instance file upload` 和 `agr instance file download` 拒绝
+  flag 风格路径时，提示用户改用位置参数形式。
+- 在 fork 工具或基于已有工具创建调试工具时，不再复制内部 `qcs` 标签。
+- 根据命令声明的 effect 推导 schema 中的 mutation、资源创建和鉴权需求标记。
+
+### 文档
+- 本版本没有文档变更。
+
 ## [0.5.1] - 2026-05-29
 
 ### 破坏性变更
