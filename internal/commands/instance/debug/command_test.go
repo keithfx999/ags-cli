@@ -138,6 +138,22 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	if got := stringSlice(custom["Args"]); len(got) != 0 {
 		t.Fatalf("Args = %#v, want empty", custom["Args"])
 	}
+	ports := custom["Ports"].([]map[string]any)
+	if len(ports) != 1 || ports[0]["Name"] != debugPortName || ports[0]["Port"] != debugPort || ports[0]["Protocol"] != debugHTTPProtocol {
+		t.Fatalf("Ports = %#v", ports)
+	}
+	probe := custom["Probe"].(map[string]any)
+	httpGet := probe["HttpGet"].(map[string]any)
+	if httpGet["Scheme"] != debugHTTPProtocol || httpGet["Port"] != debugPort || httpGet["Path"] != debugHealthPath {
+		t.Fatalf("Probe.HttpGet = %#v", httpGet)
+	}
+	if probe["ReadyTimeoutMs"] != 30000 ||
+		probe["ProbeTimeoutMs"] != 2000 ||
+		probe["ProbePeriodMs"] != 1000 ||
+		probe["SuccessThreshold"] != 1 ||
+		probe["FailureThreshold"] != 30 {
+		t.Fatalf("Probe = %#v", probe)
+	}
 
 	mounts := createReq["StorageMounts"].([]map[string]any)
 	if len(mounts) != 2 {
@@ -428,6 +444,23 @@ func sourceTool() *ags.SandboxTool {
 			ImageDigest:       strPtr("sha256:def"),
 			Command:           []*string{strPtr("/bin/app")},
 			Args:              []*string{strPtr("--serve")},
+			Ports: []*ags.PortConfiguration{{
+				Name:     strPtr("app"),
+				Port:     int64Ptr(8080),
+				Protocol: strPtr("TCP"),
+			}},
+			Probe: &ags.ProbeConfiguration{
+				HttpGet: &ags.HttpGetAction{
+					Path:   strPtr("/ready"),
+					Port:   int64Ptr(8080),
+					Scheme: strPtr("HTTP"),
+				},
+				ReadyTimeoutMs:   int64Ptr(10000),
+				ProbeTimeoutMs:   int64Ptr(5000),
+				ProbePeriodMs:    int64Ptr(10000),
+				SuccessThreshold: int64Ptr(1),
+				FailureThreshold: int64Ptr(3),
+			},
 		},
 		LogConfiguration: &ags.LogConfiguration{},
 	}
@@ -451,5 +484,7 @@ func stringSlice(value any) []string {
 func strPtr(value string) *string { return &value }
 
 func boolPtr(value bool) *bool { return &value }
+
+func int64Ptr(value int64) *int64 { return &value }
 
 var _ ControlPlane = (*fakeControlPlane)(nil)

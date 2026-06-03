@@ -21,6 +21,10 @@ const (
 	envdImageRef      = "ccr.ccs.tencentyun.com/ags-image/envd:v0.5.14"
 	envdImageSubPath  = "/usr/bin/envd"
 	envdRegistryType  = "personal"
+	debugPortName     = "envd"
+	debugPort         = 49983
+	debugHealthPath   = "/health"
+	debugHTTPProtocol = "HTTP"
 	defaultNameMaxLen = 50
 	defaultTimeout    = "1h"
 	debugReadyTimeout = 10 * time.Minute
@@ -331,7 +335,32 @@ func customConfigurationRequest(source *ags.CustomConfigurationDetail) (map[stri
 	delete(custom, "ImageDigest")
 	custom["Command"] = []string{envdMountPath}
 	custom["Args"] = []string{}
+	custom["Ports"] = debugPorts()
+	custom["Probe"] = debugProbe()
 	return custom, nil
+}
+
+func debugPorts() []map[string]any {
+	return []map[string]any{{
+		"Name":     debugPortName,
+		"Port":     debugPort,
+		"Protocol": debugHTTPProtocol,
+	}}
+}
+
+func debugProbe() map[string]any {
+	return map[string]any{
+		"HttpGet": map[string]any{
+			"Path":   debugHealthPath,
+			"Port":   debugPort,
+			"Scheme": debugHTTPProtocol,
+		},
+		"ReadyTimeoutMs":   30000,
+		"ProbeTimeoutMs":   2000,
+		"ProbePeriodMs":    1000,
+		"SuccessThreshold": 1,
+		"FailureThreshold": 30,
+	}
 }
 
 func storageMountsRequest(source []*ags.StorageMount, addedMount map[string]any) ([]map[string]any, error) {
