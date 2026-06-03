@@ -2,6 +2,39 @@
 
 本项目的所有重要更改都将记录在此文件中。
 
+## [0.6.0] - 2026-06-03
+
+### 破坏性变更
+- 本版本没有破坏性变更。
+
+### 新增
+- 完成包含工具等待和实例创建的 debug 工作流。
+- 新增分组命令示例。
+- 支持 STS session token。
+- 在命令 help 中展示复杂 flag 详情。
+- 新增 sandbox tool fork 命令。
+- 新增 debug tool 命令。
+- 新增跨全部分页的实例列表。
+- 新增 per-flag 详细 help 机制。
+
+### 修复
+- 完成 debug 实例工作流。
+- 在 schema 输出中根据 Effects 推导 Mutation、CreatesResource 和 RequiresAuth。
+- 克隆工具时过滤 qcs 标签。
+- 修复 `go install @tag` 场景下 commit 和 built 显示为 unknown 的问题。
+- `agr instance login` 干净透传远端 shell 退出状态。
+- 统一文本错误中的 Code、Message 和 RequestId 渲染。
+- instance file upload/download 遇到未知 flag 时提示 positional 用法。
+- live test 构建禁用 VCS stamping。
+- 暴露云端请求 id。
+- 分类 PTY session 失败。
+- 修复 gofmt 和 changelog gate 失败。
+- 将 `--jq` 应用于 Data 字段而不是完整 envelope。
+- 修复 `agr version` 输出中的 unknown commit 和 built 值。
+
+### 文档
+- 本版本没有文档变更。
+
 ## [0.5.1] - 2026-05-29
 
 ### 破坏性变更
