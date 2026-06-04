@@ -21,11 +21,11 @@ const (
 	envdImageRef      = "ccr.ccs.tencentyun.com/ags-image/envd:v0.5.14"
 	envdImageSubPath  = "/usr/bin/envd"
 	envdRegistryType  = "personal"
-	debugPortName      = "envd"
-	debugPort          = 49983
-	debugPortProtocol  = "TCP"
-	debugProbeScheme   = "HTTP"
-	debugHealthPath    = "/health"
+	debugPortName     = "envd"
+	debugPort         = 49983
+	debugPortProtocol = "TCP"
+	debugProbeScheme  = "HTTP"
+	debugHealthPath   = "/health"
 	defaultNameMaxLen = 50
 	defaultTimeout    = "1h"
 	debugReadyTimeout = 10 * time.Minute
