@@ -192,27 +192,6 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	}
 }
 
-func TestModuleHonorsExplicitNameAndDescription(t *testing.T) {
-	cp := &fakeControlPlane{sourceTool: sourceTool()}
-	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-	_, err = runtime.Handler.Run(context.Background(), command.Request{
-		ArgValues: map[string]string{"tool-id": "sdt-source"},
-		Flags: map[string]command.FlagValue{
-			"debug-tool-name": {Name: "debug-tool-name", Type: command.FlagString, String: "custom-debug", Changed: true},
-			"description":     {Name: "description", Type: command.FlagString, String: "custom description", Changed: true},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if cp.requests[0]["ToolName"] != "custom-debug" || cp.requests[0]["Description"] != "custom description" {
-		t.Fatalf("request = %#v", cp.requests[0])
-	}
-}
-
 func TestModulePassesInstanceTimeout(t *testing.T) {
 	cp := &fakeControlPlane{sourceTool: sourceTool()}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})

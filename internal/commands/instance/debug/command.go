@@ -55,8 +55,6 @@ func Module() command.Module {
 			{Name: "tool-id", Required: true, Description: "Source sandbox tool ID."},
 		},
 		Flags: []command.FlagSpec{
-			{Name: "debug-tool-name", Usage: "Name for the created debug tool", Type: command.FlagString, Workflow: true},
-			{Name: "description", Usage: "Description for the created debug tool", Type: command.FlagString, Workflow: true},
 			{Name: "timeout", Usage: "Instance lifetime timeout for the created debug instance", Type: command.FlagString, Default: defaultTimeout, Workflow: true},
 			{Name: "auth-mode", Usage: "Auth mode for the debug instance: DEFAULT, TOKEN, NONE, PUBLIC", Type: command.FlagString, Workflow: true},
 			{Name: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin", Type: command.FlagString, Workflow: true},
@@ -155,14 +153,8 @@ func runDebug(ctx context.Context, req command.Request, deps command.Deps, cp Co
 		extraInstanceParams["Metadata"] = parsed
 	}
 
-	debugToolName := stringFlag(req, "debug-tool-name")
-	if strings.TrimSpace(debugToolName) == "" {
-		debugToolName = defaultDebugToolName(derefString(sourceTool.ToolName), sourceToolID, deps.Now())
-	}
-	description := stringFlag(req, "description")
-	if strings.TrimSpace(description) == "" {
-		description = fmt.Sprintf("Debug tool for %s (%s)", displayToolName(sourceTool, sourceToolID), sourceToolID)
-	}
+	debugToolName := defaultDebugToolName(derefString(sourceTool.ToolName), sourceToolID, deps.Now())
+	description := fmt.Sprintf("Debug tool for %s (%s)", displayToolName(sourceTool, sourceToolID), sourceToolID)
 
 	addedMount := envdMount()
 	createReq, err := buildCreateRequest(sourceTool, debugToolName, description, stringFlag(req, "client-token"), addedMount)
