@@ -2,44 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.6.0] - 2026-06-03
+## [0.6.0] - 2026-06-04
 
 ### Breaking Changes
 - This release has no Breaking Changes.
 
 ### Features
-- Allow `agr instance mobile connect` users to choose a local ADB tunnel
-  port with `--port` instead of always using an auto-assigned port.
-- Show detailed help for individual flags via `--<flag> --help`, including
-  text, JSON, and schema output.
-- Fetch every instance page with `agr instance list --all`, including the
-  region in aggregated output.
-- Create debug tools from existing sandbox tools with `agr instance debug`.
-- Clone sandbox tools with `agr tool fork`, while still allowing users to
-  override create-time settings.
-- Show Format, Values, and Examples for complex flags directly in standard
+- Support STS session tokens for temporary Tencent Cloud credential
+  authentication.
+- Let users choose the local ADB tunnel port for
+  `agr instance mobile connect`.
+- Add `agr instance list --all` to fetch every instance page in the
+  configured region.
+- Add `agr instance debug` to create a debug tool from an existing
+  sandbox tool.
+- Add `agr tool fork` to create a new sandbox tool from an existing
+  tool's create-capable settings.
+- Show format, accepted values, and examples for complex flags in
   command help.
-- Support Tencent Cloud STS session tokens through `--token`,
-  `TENCENTCLOUD_TOKEN`, and `[auth].token`.
-- Show grouped command examples in help output and expose example metadata
-  through `agr schema`.
+- Group command examples in help output and expose example metadata in
+  `agr schema`.
+- Provide per-flag detailed help in text, JSON, and schema output.
 
 ### Bug Fixes
-- Show useful commit and build metadata for binaries installed with
+- Show TencentCloud `Code`, `Message`, and `RequestId` on consistent
+  stderr lines for easier support handoff.
+- Propagate remote shell exit codes cleanly from `agr instance login`
+  and report PTY session failures as data-plane errors.
+- Show useful version metadata for binaries installed with
   `go install @latest` or `go install <module>@<tag>`.
-- Report PTY and envd login failures more clearly, and treat normal remote
-  shell exits like SSH-style session exits.
-- Show TencentCloud `Code`, `Message`, and `RequestId` on dedicated error
-  lines so support handoffs are easier.
-- Point `agr instance file upload` and `agr instance file download` users
-  to the positional path syntax when flag-style paths are rejected.
-- Avoid copying internal `qcs` tags when users fork tools or create debug
-  tools from existing tools.
-- Mark command schema metadata such as mutation, resource creation, and
-  authentication requirements from declared command effects.
+- Derive schema mutation, resource-creation, and authentication flags
+  from command output effects.
+- Drop internal `qcs` tags when cloning tools for fork and debug
+  workflows.
+- Show upload and download positional usage hints when users pass an
+  unknown flag to instance file commands.
 
 ### Docs
-- This release has no Docs changes.
+- Document the recommended install paths and version metadata behavior
+  for pre-built binaries and Go-installed binaries.
 
 ## [0.5.1] - 2026-05-29
 
