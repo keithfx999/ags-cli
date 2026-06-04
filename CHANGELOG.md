@@ -2,76 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
-
-## [0.6.0] - 2026-06-02
+## [0.6.0] - 2026-06-04
 
 ### Breaking Changes
 - This release has no Breaking Changes.
 
 ### Features
-- Tencent Cloud STS session tokens are now supported via `--token`,
-  `TENCENTCLOUD_TOKEN`, and `[auth].token` for temporary AK/SK
-  credentials. (Upstream-Issue: 15)
-- `agr instance debug <tool-id>` creates a debug tool from an existing
-  sandbox tool by switching the startup command to `/envd` and adding
-  the envd image mount. (Upstream-Issue: 3)
-- `agr tool fork <source-tool-id> --tool-name <new-tool-name>` creates a
-  new tool by copying create-capable settings from an existing tool, with
-  create-like flags available for explicit overrides. (Upstream-Issue: 5)
-- `agr instance list --all` fetches all instance-list pages for the
-  current configured region and includes the region in aggregated
-  output. (Upstream-Issue: 4)
-- Normal command help now includes Format, Values, and Examples for
-  complex flags such as `--filters`, `--tool-ids`, `--instance-ids`,
-  `--network-configuration`, `--tags`, and `--storage-mounts`.
-  (Upstream-Issue: 7)
-- Command help now renders grouped `Example - ...:` sections across
-  public leaf commands, and `agr schema` exposes command examples plus
-  complex flag format/examples/values metadata. (Upstream-Issue: 46)
-- Per-flag detailed help is available via `--<flag> --help`, exposed in
-  both text and `-o json` output and in `agr schema` JSON.
+- Allow `agr instance mobile connect` to bind the ADB tunnel to a chosen
+  local port with `--port`.
+- Show richer complex-flag help in normal command output, including
+  formats, allowed values, examples, and schema metadata.
+- Add `agr instance list --all` to fetch every instance page in the
+  configured region.
+- Add `agr instance debug` to create a debug tool and start a debug
+  instance from an existing sandbox tool.
+- Add `agr tool fork` to clone create-capable settings from an existing
+  sandbox tool while still allowing explicit overrides.
+- Support Tencent Cloud STS session tokens for temporary credential
+  authentication.
+- Show grouped command examples in help output and expose example metadata
+  through `agr schema`.
 
 ### Bug Fixes
-- Service-side TencentCloud errors now include `RequestId` alongside
-  `Code` and `Message` in CLI error output, and text-mode error output
-  renders `Error`, `Code`, and `RequestId` on dedicated, uniformly
-  labeled lines (instead of the previous `Error: <message> (<code>)`
-  format), so all three service-side identifiers needed for a
-  TencentCloud support handoff are easy to read and copy-paste.
-- `agr instance login` now reports PTY/envd data-plane session failures
-  explicitly instead of collapsing them into a generic internal error,
-  and no longer treats a remote shell exit as a CLI failure: when the
-  user types `exit` the command now propagates the remote shell's exit
-  code as the CLI process exit status without rendering an error
-  envelope, mirroring `ssh` behavior. (Upstream-Issue: 13)
-- `agr version` now extracts commit hash and build timestamp from Go
-  module pseudo-versions when VCS build info is unavailable (e.g.
-  binaries installed via `go install @latest`), and prints
-  `n/a (go install)` instead of the bare literal `unknown` for `commit`
-  and `built` when the binary was produced by
-  `go install <module>@<tag>` (Go does not stamp VCS metadata for
-  module-cache builds). Pseudo-version installs and ldflags-stamped
-  release binaries are unchanged. (Upstream-Issue: 6)
-- `--jq` expressions now operate on the `Data` payload directly instead
-  of the wrapping envelope, consistent with `gh --jq` and `aws --query`
-  behavior (e.g. `.InstanceId` instead of `.Data.InstanceId`).
-  (Upstream-Issue: 10)
-- Live test binary builds now disable Go VCS stamping so race-test gate
-  runs do not fail in worktrees where Git metadata cannot be inspected.
-- CI gofmt and changelog-gate failures resolved by formatting
-  `internal/cli/flaghelp.go` and changing the `## [Unreleased]` heading
-  to `## Unreleased` so it does not trip the version-heading regex.
-- `agr instance file upload` and `agr instance file download` now emit a
-  command-specific hint when an unknown flag (such as `--source` or
-  `--target`) is passed, pointing at the positional `<instance-id>
-  <local-path|-> <remote-path>` form instead of the generic
-  `agr --help` pointer. (Upstream-Issue: 20)
+- Show TencentCloud service `Code`, `Message`, and `RequestId` on
+  dedicated error lines for easier support handoff.
+- Report `agr instance login` data-plane session failures clearly and
+  propagate remote shell exits like `ssh`.
+- Resolve missing commit and build metadata in `agr version` output for
+  binaries installed with `go install @latest` or `go install @tag`.
+- Show command-specific positional usage hints when
+  `agr instance file upload` or `agr instance file download` receives
+  flag-style path arguments.
+- Exclude internal `qcs` tags when cloning tools or generating debug
+  tools.
+- Mark create, mutation, and auth metadata correctly in `agr schema` for
+  commands with resource effects.
+- Wait for debug tool and debug instance readiness, clean up failed debug
+  resources, and configure generated debug tools with health checks.
 
 ### Docs
-- `make go-install` target installs the binary to `$GOPATH/bin` with
-  full version metadata injected via ldflags; README and README-zh
-  installation docs updated to recommend pre-built binaries.
+- Update installation docs to recommend release binaries and explain
+  `go install` version metadata behavior.
 
 ## [0.5.1] - 2026-05-29
 
