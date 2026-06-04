@@ -279,7 +279,7 @@ func cleanupDebugResources(deps command.Deps, cp ControlPlane, instanceID, toolI
 
 func connectionData(instanceID string) map[string]string {
 	return map[string]string{
-		"Login": fmt.Sprintf("agr instance login %s", instanceID),
+		"Login": fmt.Sprintf("agr instance login %s --user \"YOUR_USER\"", instanceID),
 		"Proxy": fmt.Sprintf("agr instance proxy %s", instanceID),
 	}
 }
