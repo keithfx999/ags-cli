@@ -56,10 +56,27 @@ func Module() command.Module {
 		},
 		Flags: []command.FlagSpec{
 			{Name: "timeout", Usage: "Instance lifetime timeout for the created debug instance", Type: command.FlagString, Default: defaultTimeout, Workflow: true},
-			{Name: "auth-mode", Usage: "Auth mode for the debug instance: DEFAULT, TOKEN, NONE, PUBLIC", Type: command.FlagString, Workflow: true},
-			{Name: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin", Type: command.FlagString, Workflow: true},
-			{Name: "custom-configuration", Usage: "CustomConfiguration JSON object for the debug instance, @file, or - for stdin", Type: command.FlagString, Workflow: true},
-			{Name: "metadata", Usage: "Metadata as JSON array, @file, or - for stdin", Type: command.FlagString, Workflow: true},
+			{Name: "auth-mode", Usage: "Auth mode for the debug instance: DEFAULT, TOKEN, NONE, PUBLIC", Values: []string{"DEFAULT", "TOKEN", "NONE", "PUBLIC"}, Type: command.FlagString, Workflow: true},
+			{
+				Name: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin",
+				Format:   `[{"Name":"<name>","MountPath":"<path>"}]`,
+				Examples: []string{`agr instance debug sdt-xxxx --mount-options '[{"Name":"data","MountPath":"/workspace"}]'`},
+				Type:     command.FlagString, Workflow: true,
+			},
+			{
+				Name:     "custom-configuration",
+				Usage:    "CustomConfiguration JSON object for the debug instance, @file, or - for stdin",
+				Format:   `{"Env":[{"Name":"KEY","Value":"VAL"}]}`,
+				Examples: []string{`agr instance debug sdt-xxxx --custom-configuration '{"Env":[{"Name":"MY_VAR","Value":"hello"}]}'`},
+				Type:     command.FlagString, Workflow: true,
+			},
+			{
+				Name:     "metadata",
+				Usage:    "Metadata as JSON array, @file, or - for stdin",
+				Format:   `[{"Key":"<key>","Value":"<value>"}]`,
+				Examples: []string{`agr instance debug sdt-xxxx --metadata '[{"Key":"env","Value":"debug"}]'`},
+				Type:     command.FlagString, Workflow: true,
+			},
 			{Name: "client-token", Usage: "Client token for duplicate creation protection", Type: command.FlagString, Workflow: true},
 		},
 		Output: command.OutputSpec{

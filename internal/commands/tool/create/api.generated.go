@@ -102,14 +102,14 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "CustomConfiguration",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "custom-configuration", Flag: "custom-configuration", Usage: "CustomConfiguration JSON object, @file, or - for stdin", Type: command.FlagString},
+					{Name: "custom-configuration", Flag: "custom-configuration", Usage: "CustomConfiguration JSON object, @file, or - for stdin", Format: "{\"Image\":\"<registry>/<image>:<tag>\",\"ImageRegistryType\":\"personal\",\"Command\":[\"/bin/sh\"],\"Args\":[\"-c\",\"sleep 3600\"],\"Env\":[{\"Name\":\"KEY\",\"Value\":\"VAL\"}],\"Ports\":[{\"Name\":\"app\",\"Port\":8080,\"Protocol\":\"TCP\"}],\"Resources\":{\"CPU\":\"2\",\"Memory\":\"4Gi\"}}", Examples: []string{"agr tool create -n my-tool -t custom --network-configuration '{\"NetworkMode\":\"PUBLIC\"}' --custom-configuration '{\"Image\":\"ubuntu:22.04\",\"ImageRegistryType\":\"personal\",\"Resources\":{\"CPU\":\"2\",\"Memory\":\"4Gi\"}}'"}, Type: command.FlagString},
 				},
 			},
 			{
 				Name:   "LogConfiguration",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "log-configuration", Flag: "log-configuration", Usage: "LogConfiguration JSON object, @file, or - for stdin", Type: command.FlagString},
+					{Name: "log-configuration", Flag: "log-configuration", Usage: "LogConfiguration JSON object, @file, or - for stdin", Format: "{\"CLSConfig\":{\"TopicId\":\"<cls-topic-id>\"}}", Examples: []string{"agr tool create -n my-tool -t code-interpreter --network-configuration '{\"NetworkMode\":\"SANDBOX\"}' --log-configuration '{\"CLSConfig\":{\"TopicId\":\"xxxxx-xxxx-xxxx\"}}'"}, Type: command.FlagString},
 				},
 			},
 			{

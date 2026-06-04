@@ -71,7 +71,7 @@ func APIDescriptor() apicli.APIDescriptor {
 				Name:   "CustomConfiguration",
 				Parser: "common.default_json",
 				Inputs: []apicli.InputSpec{
-					{Name: "custom-configuration", Flag: "custom-configuration", Usage: "CustomConfiguration JSON object, @file, or - for stdin", Type: command.FlagString},
+					{Name: "custom-configuration", Flag: "custom-configuration", Usage: "CustomConfiguration JSON object, @file, or - for stdin", Format: "{\"Image\":\"<registry>/<image>:<tag>\",\"Env\":[{\"Name\":\"KEY\",\"Value\":\"VAL\"}],\"Ports\":[{\"Name\":\"app\",\"Port\":8080,\"Protocol\":\"TCP\"}]}", Examples: []string{"agr instance create --tool-id sdt-xxxx --custom-configuration '{\"Env\":[{\"Name\":\"MY_VAR\",\"Value\":\"hello\"}]}'"}, Type: command.FlagString},
 				},
 			},
 			{
