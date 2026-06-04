@@ -58,6 +58,10 @@ func Module() command.Module {
 			{Name: "debug-tool-name", Usage: "Name for the created debug tool", Type: command.FlagString, Workflow: true},
 			{Name: "description", Usage: "Description for the created debug tool", Type: command.FlagString, Workflow: true},
 			{Name: "timeout", Usage: "Instance lifetime timeout for the created debug instance", Type: command.FlagString, Default: defaultTimeout, Workflow: true},
+			{Name: "auth-mode", Usage: "Auth mode for the debug instance: DEFAULT, TOKEN, NONE, PUBLIC", Type: command.FlagString, Workflow: true},
+			{Name: "mount-options", Usage: "MountOptions as JSON array, @file, or - for stdin", Type: command.FlagString, Workflow: true},
+			{Name: "custom-configuration", Usage: "CustomConfiguration JSON object for the debug instance, @file, or - for stdin", Type: command.FlagString, Workflow: true},
+			{Name: "metadata", Usage: "Metadata as JSON array, @file, or - for stdin", Type: command.FlagString, Workflow: true},
 			{Name: "client-token", Usage: "Client token for duplicate creation protection", Type: command.FlagString, Workflow: true},
 		},
 		Output: command.OutputSpec{
@@ -124,6 +128,33 @@ func runDebug(ctx context.Context, req command.Request, deps command.Deps, cp Co
 		instanceTimeout = defaultTimeout
 	}
 
+	// Pre-parse instance flags early to fail fast on invalid JSON before creating resources.
+	extraInstanceParams := map[string]any{}
+	if v := stringFlag(req, "auth-mode"); v != "" {
+		extraInstanceParams["AuthMode"] = v
+	}
+	if v := stringFlag(req, "mount-options"); v != "" {
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid JSON for --mount-options: %w", err)
+		}
+		extraInstanceParams["MountOptions"] = parsed
+	}
+	if v := stringFlag(req, "custom-configuration"); v != "" {
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid JSON for --custom-configuration: %w", err)
+		}
+		extraInstanceParams["CustomConfiguration"] = parsed
+	}
+	if v := stringFlag(req, "metadata"); v != "" {
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid JSON for --metadata: %w", err)
+		}
+		extraInstanceParams["Metadata"] = parsed
+	}
+
 	debugToolName := stringFlag(req, "debug-tool-name")
 	if strings.TrimSpace(debugToolName) == "" {
 		debugToolName = defaultDebugToolName(derefString(sourceTool.ToolName), sourceToolID, deps.Now())
@@ -152,10 +183,16 @@ func runDebug(ctx context.Context, req command.Request, deps command.Deps, cp Co
 		return nil, err
 	}
 
-	startResp, err := cp.Call(ctx, "StartSandboxInstance", map[string]any{
-		"ToolId":  toolID,
-		"Timeout": instanceTimeout,
-	})
+	startResp, err := cp.Call(ctx, "StartSandboxInstance", func() map[string]any {
+		r := map[string]any{
+			"ToolId":  toolID,
+			"Timeout": instanceTimeout,
+		}
+		for k, v := range extraInstanceParams {
+			r[k] = v
+		}
+		return r
+	}())
 	if err != nil {
 		cleanupDebugResources(deps, cp, "", toolID)
 		return nil, err

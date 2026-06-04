@@ -139,12 +139,12 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 		t.Fatalf("Args = %#v, want empty", custom["Args"])
 	}
 	ports := custom["Ports"].([]map[string]any)
-	if len(ports) != 1 || ports[0]["Name"] != debugPortName || ports[0]["Port"] != debugPort || ports[0]["Protocol"] != debugHTTPProtocol {
+	if len(ports) != 1 || ports[0]["Name"] != debugPortName || ports[0]["Port"] != debugPort || ports[0]["Protocol"] != debugPortProtocol {
 		t.Fatalf("Ports = %#v", ports)
 	}
 	probe := custom["Probe"].(map[string]any)
 	httpGet := probe["HttpGet"].(map[string]any)
-	if httpGet["Scheme"] != debugHTTPProtocol || httpGet["Port"] != debugPort || httpGet["Path"] != debugHealthPath {
+	if httpGet["Scheme"] != debugProbeScheme || httpGet["Port"] != debugPort || httpGet["Path"] != debugHealthPath {
 		t.Fatalf("Probe.HttpGet = %#v", httpGet)
 	}
 	if probe["ReadyTimeoutMs"] != 30000 ||
@@ -179,7 +179,7 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	if data["ToolId"] != "sdt-debug" || data["SourceToolId"] != "sdt-source" || data["InstanceId"] != "ins-debug" || data["Status"] != "RUNNING" {
 		t.Fatalf("data = %#v", data)
 	}
-	if data["Connection"].(map[string]string)["Login"] != "agr instance login ins-debug" {
+	if data["Connection"].(map[string]string)["Login"] != "agr instance login ins-debug --user \"YOUR_USER\"" {
 		t.Fatalf("connection = %#v", data["Connection"])
 	}
 	if len(result.Effects) != 2 || result.Effects[0].Resource != "tool" || result.Effects[1].Resource != "instance" {
@@ -187,7 +187,7 @@ func TestModuleRunsFullDebugWorkflow(t *testing.T) {
 	}
 	var text bytes.Buffer
 	result.Text(&text)
-	if !strings.Contains(text.String(), "Debug instance ready: ins-debug") || !strings.Contains(text.String(), "agr instance login ins-debug") || !strings.Contains(text.String(), envdImageRef) {
+	if !strings.Contains(text.String(), "Debug instance ready: ins-debug") || !strings.Contains(text.String(), "agr instance login ins-debug --user") || !strings.Contains(text.String(), envdImageRef) {
 		t.Fatalf("text = %q", text.String())
 	}
 }
