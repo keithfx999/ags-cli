@@ -1,13 +1,73 @@
 #!/usr/bin/env sh
-# install.sh — one-line installer for AGR CLI
-# Usage: curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | sh
+# install.sh - one-line installer for AGR CLI.
+# Default source: official (https://dl.tencentags.com/agr-cli)
+# GitHub fallback:
+#   AGR_DOWNLOAD_MIRROR=github curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | sh
 set -eu
 
 REPO="TencentCloudAgentRuntime/ags-cli"
 BINARY="agr"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+AGR_DOWNLOAD_MIRROR="${AGR_DOWNLOAD_MIRROR:-official}"
+OFFICIAL_BASE_URL="${AGR_DOWNLOAD_BASE_URL:-https://dl.tencentags.com/agr-cli}"
 
-# ── Detect platform ──────────────────────────────────────────────────
+download() {
+    url="$1"
+    output="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fSL -o "$output" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$output" "$url"
+    else
+        echo "Error: curl or wget is required." >&2
+        exit 1
+    fi
+}
+
+download_quiet() {
+    url="$1"
+    output="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$output" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$output" "$url"
+    else
+        echo "Error: curl or wget is required." >&2
+        exit 1
+    fi
+}
+
+sha256_file() {
+    path="$1"
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+    else
+        echo "Error: shasum or sha256sum is required for checksum verification." >&2
+        exit 1
+    fi
+}
+
+verify_checksum() {
+    checksums="$1"
+    expected_path="$2"
+    actual_file="$3"
+    expected_sha="$(awk -v path="$expected_path" '$2 == path {print $1}' "$checksums")"
+    if [ -z "$expected_sha" ]; then
+        echo "Error: checksum for ${expected_path} not found." >&2
+        exit 1
+    fi
+    actual_sha="$(sha256_file "$actual_file")"
+    if [ "$expected_sha" != "$actual_sha" ]; then
+        echo "Error: checksum mismatch for ${expected_path}." >&2
+        echo "Expected: $expected_sha" >&2
+        echo "Actual:   $actual_sha" >&2
+        exit 1
+    fi
+}
+
+# Detect platform.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
@@ -23,69 +83,88 @@ case "$ARCH" in
     *)             echo "Error: unsupported architecture '$ARCH'" >&2; exit 1 ;;
 esac
 
-# ── Determine latest version ─────────────────────────────────────────
-# Method 1: GitHub release redirect (no API quota needed)
-if [ -z "${LATEST:-}" ] && command -v curl >/dev/null 2>&1; then
-    LATEST="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" 2>/dev/null | sed 's|.*/tag/||')"
-fi
-if [ -z "${LATEST:-}" ] && command -v wget >/dev/null 2>&1; then
-    LATEST="$(wget -qS -O /dev/null "https://github.com/${REPO}/releases/latest" 2>&1 | grep -i 'Location:' | tail -1 | sed 's|.*/tag/||' | tr -d '\r\n')"
-fi
-
-# Method 2: GitHub API (fallback, subject to rate limits)
-if [ -z "${LATEST:-}" ] && command -v curl >/dev/null 2>&1; then
-    LATEST="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
-fi
-if [ -z "${LATEST:-}" ] && command -v wget >/dev/null 2>&1; then
-    LATEST="$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
-fi
-
-if [ -z "${LATEST:-}" ]; then
-    echo "Error: could not determine the latest version." >&2
-    echo "Please specify the version manually, e.g.:" >&2
-    echo "  curl -fLO https://github.com/${REPO}/releases/download/v0.5.0/agr-0.5.0-${OS}-${ARCH}.tar.gz" >&2
-    exit 1
-fi
-
-VERSION="${LATEST#v}"
-FILENAME="${BINARY}-${VERSION}-${OS}-${ARCH}.tar.gz"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/${FILENAME}"
-
-# ── Download and install ─────────────────────────────────────────────
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "AGR CLI ${LATEST} (${OS}/${ARCH})"
-echo "Downloading ${DOWNLOAD_URL} ..."
+case "$AGR_DOWNLOAD_MIRROR" in
+    official|"")
+        if [ -z "${VERSION:-}" ]; then
+            download_quiet "${OFFICIAL_BASE_URL}/latest/VERSION" "$TMPDIR/VERSION"
+            VERSION="$(tr -d '[:space:]' < "$TMPDIR/VERSION")"
+        fi
+        case "$VERSION" in
+            v*) TAG="$VERSION"; VERSION_NUMBER="${VERSION#v}" ;;
+            *)  TAG="v$VERSION"; VERSION_NUMBER="$VERSION" ;;
+        esac
+        FILENAME="${BINARY}-${VERSION_NUMBER}-${OS}-${ARCH}.tar.gz"
+        DOWNLOAD_URL="${OFFICIAL_BASE_URL}/${TAG}/${FILENAME}"
+        CHECKSUM_URL="${OFFICIAL_BASE_URL}/${TAG}/checksums.txt"
 
-if command -v curl >/dev/null 2>&1; then
-    curl -fSL -o "$TMPDIR/$FILENAME" "$DOWNLOAD_URL"
-elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$TMPDIR/$FILENAME" "$DOWNLOAD_URL"
-else
-    echo "Error: curl or wget is required." >&2
+        echo "AGR CLI ${TAG} (${OS}/${ARCH})"
+        echo "Source: official (${OFFICIAL_BASE_URL})"
+        echo "Downloading ${DOWNLOAD_URL} ..."
+        download "$DOWNLOAD_URL" "$TMPDIR/$FILENAME"
+        download_quiet "$CHECKSUM_URL" "$TMPDIR/checksums.txt"
+        verify_checksum "$TMPDIR/checksums.txt" "$FILENAME" "$TMPDIR/$FILENAME"
+        tar xzf "$TMPDIR/$FILENAME" -C "$TMPDIR"
+        BIN_NAME="$BINARY"
+        ;;
+
+    github|gh)
+        if [ -z "${VERSION:-}" ]; then
+            if command -v curl >/dev/null 2>&1; then
+                VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" 2>/dev/null | sed 's|.*/tag/||')"
+            elif command -v wget >/dev/null 2>&1; then
+                VERSION="$(wget -qS -O /dev/null "https://github.com/${REPO}/releases/latest" 2>&1 | grep -i 'Location:' | tail -1 | sed 's|.*/tag/||' | tr -d '\r\n')"
+            fi
+        fi
+        if [ -z "${VERSION:-}" ]; then
+            echo "Error: could not determine the latest GitHub release version." >&2
+            echo "Please retry with VERSION=vX.Y.Z." >&2
+            exit 1
+        fi
+        case "$VERSION" in
+            v*) TAG="$VERSION"; VERSION_NUMBER="${VERSION#v}" ;;
+            *)  TAG="v$VERSION"; VERSION_NUMBER="$VERSION" ;;
+        esac
+        FILENAME="${BINARY}-${VERSION_NUMBER}-${OS}-${ARCH}.tar.gz"
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
+        CHECKSUM_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
+
+        echo "AGR CLI ${TAG} (${OS}/${ARCH})"
+        echo "Source: GitHub Releases"
+        echo "Downloading ${DOWNLOAD_URL} ..."
+        download "$DOWNLOAD_URL" "$TMPDIR/$FILENAME"
+        download_quiet "$CHECKSUM_URL" "$TMPDIR/checksums.txt"
+        verify_checksum "$TMPDIR/checksums.txt" "$FILENAME" "$TMPDIR/$FILENAME"
+        tar xzf "$TMPDIR/$FILENAME" -C "$TMPDIR"
+        BIN_NAME="$BINARY"
+        ;;
+
+    *)
+        echo "Error: unsupported AGR_DOWNLOAD_MIRROR '$AGR_DOWNLOAD_MIRROR'." >&2
+        echo "Supported values: official, github." >&2
+        exit 1
+        ;;
+esac
+
+if [ ! -f "$TMPDIR/$BIN_NAME" ]; then
+    echo "Error: binary '$BIN_NAME' not found." >&2
     exit 1
 fi
 
-tar xzf "$TMPDIR/$FILENAME" -C "$TMPDIR"
-
-if [ ! -f "$TMPDIR/$BINARY" ]; then
-    echo "Error: binary '$BINARY' not found in archive." >&2
-    exit 1
-fi
-
-chmod +x "$TMPDIR/$BINARY"
+chmod +x "$TMPDIR/$BIN_NAME"
 
 if [ -w "$INSTALL_DIR" ]; then
-    mv "$TMPDIR/$BINARY" "${INSTALL_DIR}/${BINARY}"
+    mv "$TMPDIR/$BIN_NAME" "${INSTALL_DIR}/${BINARY}"
 else
     echo "Installing to ${INSTALL_DIR}/${BINARY} (requires sudo) ..."
-    sudo mv "$TMPDIR/$BINARY" "${INSTALL_DIR}/${BINARY}"
+    sudo mv "$TMPDIR/$BIN_NAME" "${INSTALL_DIR}/${BINARY}"
 fi
 
 echo ""
 echo "AGR CLI installed successfully!"
 echo "  Command:  ${INSTALL_DIR}/${BINARY}"
-echo "  Version:  $(${INSTALL_DIR}/${BINARY} version 2>/dev/null | head -1 || echo "${LATEST}")"
+echo "  Version:  $(${INSTALL_DIR}/${BINARY} version 2>/dev/null | head -1 || echo "${TAG}")"
 echo ""
 echo "Next step: run 'agr init' to configure your credentials."
