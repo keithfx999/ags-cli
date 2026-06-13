@@ -46,6 +46,9 @@ jobs:
           bash scripts/changelog.sh validate-pair "${{ steps.version.outputs.version }}"
           bash scripts/changelog.sh validate-release-notes-pair "${{ steps.version.outputs.version }}"
 
+      - name: Validate README release version
+        run: bash scripts/readme_version.sh validate "${{ steps.version.outputs.version }}"
+
       - name: Extract release notes from changelog
         run: bash scripts/changelog.sh extract "${{ steps.version.outputs.version }}" RELEASE_NOTES.md
 
