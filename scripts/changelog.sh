@@ -3,22 +3,36 @@
 set -euo pipefail
 
 CHANGELOG_FILE="${CHANGELOG_FILE:-CHANGELOG.md}"
+RELEASE_NOTE_SECTIONS="${RELEASE_NOTE_SECTIONS:-Breaking Changes
+Features
+Bug Fixes
+Docs}"
+ZH_CHANGELOG_FILE="${ZH_CHANGELOG_FILE:-CHANGELOG-zh.md}"
+ZH_RELEASE_NOTE_SECTIONS="${ZH_RELEASE_NOTE_SECTIONS:-破坏性变更
+新功能
+Bug 修复
+文档}"
 HEADING_RE='^## \[([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+(\.[0-9]+)?)?)\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$'
 
 usage() {
   cat <<'EOF'
 Usage:
   scripts/changelog.sh validate [version]
+  scripts/changelog.sh validate-pair [version]
   scripts/changelog.sh validate-release-notes <version>
+  scripts/changelog.sh validate-release-notes-pair <version>
   scripts/changelog.sh validate-latest-release-notes
   scripts/changelog.sh extract <version> <output>
 
 Commands:
   validate          Validate changelog heading format and duplicate versions.
                     If version is provided, also require that section to exist.
+  validate-pair     Validate both CHANGELOG.md and CHANGELOG-zh.md.
   validate-release-notes
                     Validate the target version section uses the release-note
                     structure: Breaking Changes, Features, Bug Fixes, Docs.
+  validate-release-notes-pair
+                    Validate release-note sections in both changelogs.
   validate-latest-release-notes
                     Validate the latest changelog section uses the release-note
                     structure: Breaking Changes, Features, Bug Fixes, Docs.
@@ -27,6 +41,8 @@ Commands:
 Notes:
   - Versions use X.Y.Z format in CHANGELOG.md.
   - Tags use vX.Y.Z; callers should strip the leading "v" before invoking.
+  - RELEASE_NOTE_SECTIONS can override the required section names, one per line.
+  - ZH_CHANGELOG_FILE and ZH_RELEASE_NOTE_SECTIONS configure pair validation.
 EOF
 }
 
@@ -109,12 +125,9 @@ validate_release_notes() {
     }
   ' "$CHANGELOG_FILE")"
 
-  if [ "$sections" != $'Breaking Changes\nFeatures\nBug Fixes\nDocs' ]; then
+  if [ "$sections" != "$RELEASE_NOTE_SECTIONS" ]; then
     echo "Release notes for version $version must use exactly these sections in order:" >&2
-    echo "  ### Breaking Changes" >&2
-    echo "  ### Features" >&2
-    echo "  ### Bug Fixes" >&2
-    echo "  ### Docs" >&2
+    printf '%s\n' "$RELEASE_NOTE_SECTIONS" | sed 's/^/  ### /' >&2
     echo "Found:" >&2
     if [ -n "$sections" ]; then
       printf '  %s\n' "$sections" >&2
@@ -123,6 +136,31 @@ validate_release_notes() {
     fi
     exit 1
   fi
+}
+
+with_changelog() {
+  local changelog_file="$1"
+  local release_note_sections="$2"
+  shift 2
+
+  CHANGELOG_FILE="$changelog_file" RELEASE_NOTE_SECTIONS="$release_note_sections" "$@"
+}
+
+validate_pair() {
+  local version="${1:-}"
+
+  validate "$version"
+  with_changelog "$ZH_CHANGELOG_FILE" "$ZH_RELEASE_NOTE_SECTIONS" validate "$version"
+}
+
+validate_release_notes_pair() {
+  if [ "$#" -ne 1 ]; then
+    usage >&2
+    exit 1
+  fi
+
+  validate_release_notes "$1"
+  with_changelog "$ZH_CHANGELOG_FILE" "$ZH_RELEASE_NOTE_SECTIONS" validate_release_notes "$1"
 }
 
 extract() {
@@ -165,9 +203,21 @@ main() {
       fi
       validate "${1:-}"
       ;;
+    validate-pair)
+      shift
+      if [ "$#" -gt 1 ]; then
+        usage >&2
+        exit 1
+      fi
+      validate_pair "${1:-}"
+      ;;
     validate-release-notes)
       shift
       validate_release_notes "$@"
+      ;;
+    validate-release-notes-pair)
+      shift
+      validate_release_notes_pair "$@"
       ;;
     validate-latest-release-notes)
       shift

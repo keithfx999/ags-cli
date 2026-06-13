@@ -2,6 +2,23 @@
 
 本项目的所有重要更改都将记录在此文件中。
 
+## [0.6.2] - 2026-06-12
+
+### 破坏性变更
+- 本版本没有破坏性变更。
+
+### 新功能
+- 为移动实例的 ADB tunnel 新增健康检测和自动恢复能力。不可达的 tunnel 现在会进入 degraded 状态，`mobile list` 会显示真实 tunnel 状态，`mobile list --prune` 可以清理不可达的 tunnel 记录。
+- 新增 AGR CLI official 下载源 `https://dl.tencentags.com/agr-cli`，一键安装脚本默认使用该下载源，并可通过 `AGR_DOWNLOAD_MIRROR=github` 回退到 GitHub Releases。
+- Release 流水线会将版本产物发布到 official 下载源，包括版本目录下的产物，以及 `latest/install.sh` 和 `latest/VERSION` 指针。
+
+### Bug 修复
+- 修复网络中断、沙箱 sleep/wake 或远端 adbd 重启后 ADB tunnel 可能挂起的问题；现在会关闭陈旧的本地 TCP 连接，让 ADB 以新的协议握手重新连接。
+- 从上游 tccli API 定义同步 `api/ags/v20250920/api.json`。
+
+### 文档
+- 更新 README 和 README-zh 的安装说明，默认使用 official 下载源。
+
 ## [0.6.1] - 2026-06-05
 
 ### 破坏性变更
