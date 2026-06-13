@@ -17,7 +17,7 @@ curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | sh
 安装指定版本：
 
 ```bash
-curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | VERSION=v0.6.2 sh
+curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | VERSION=v0.6.3 sh
 ```
 
 使用 GitHub Releases 作为备用下载源：
@@ -36,12 +36,12 @@ curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | INSTALL_DIR="$H
 
 从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载最新版本并手动安装。
 
-将 `VERSION` 设置为目标版本号（如 `0.6.1`）：
+将 `VERSION` 设置为目标版本号（如 `0.6.3`）：
 
 **macOS（Apple Silicon）**
 
 ```bash
-VERSION=0.6.1
+VERSION=0.6.3
 curl -fLO https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/agr-${VERSION}-darwin-arm64.tar.gz
 tar xzf agr-${VERSION}-darwin-arm64.tar.gz
 sudo mv agr /usr/local/bin/agr
@@ -51,7 +51,7 @@ rm agr-${VERSION}-darwin-arm64.tar.gz
 **macOS（Intel）**
 
 ```bash
-VERSION=0.6.1
+VERSION=0.6.3
 curl -fLO https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/agr-${VERSION}-darwin-amd64.tar.gz
 tar xzf agr-${VERSION}-darwin-amd64.tar.gz
 sudo mv agr /usr/local/bin/agr
@@ -61,7 +61,7 @@ rm agr-${VERSION}-darwin-amd64.tar.gz
 **Linux（x86_64）**
 
 ```bash
-VERSION=0.6.1
+VERSION=0.6.3
 curl -fLO https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/agr-${VERSION}-linux-amd64.tar.gz
 tar xzf agr-${VERSION}-linux-amd64.tar.gz
 sudo mv agr /usr/local/bin/agr
@@ -71,7 +71,7 @@ rm agr-${VERSION}-linux-amd64.tar.gz
 **Linux（ARM64）**
 
 ```bash
-VERSION=0.6.1
+VERSION=0.6.3
 curl -fLO https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/agr-${VERSION}-linux-arm64.tar.gz
 tar xzf agr-${VERSION}-linux-arm64.tar.gz
 sudo mv agr /usr/local/bin/agr
@@ -81,7 +81,7 @@ rm agr-${VERSION}-linux-arm64.tar.gz
 **Windows（x86_64）— PowerShell**
 
 ```powershell
-$VERSION = "0.6.1"
+$VERSION = "0.6.3"
 Invoke-WebRequest -Uri "https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/agr-${VERSION}-windows-amd64.zip" -OutFile "agr-${VERSION}-windows-amd64.zip"
 Expand-Archive "agr-${VERSION}-windows-amd64.zip" -DestinationPath .
 Move-Item agr.exe "$env:USERPROFILE\bin\agr.exe"
@@ -93,7 +93,7 @@ Remove-Item "agr-${VERSION}-windows-amd64.zip"
 ### 校验下载文件
 
 ```bash
-VERSION=0.6.1
+VERSION=0.6.3
 curl -fLO https://github.com/TencentCloudAgentRuntime/ags-cli/releases/download/v${VERSION}/checksums.txt
 shasum -a 256 -c checksums.txt --ignore-missing
 ```

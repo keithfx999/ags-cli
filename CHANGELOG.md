@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2026-06-13
+
+### Breaking Changes
+- This release has no Breaking Changes.
+
+### Features
+- This release has no new features.
+
+### Bug Fixes
+- Fix release artifact uploads to the official download source for multi-AZ
+  COS buckets by replacing the legacy COS GitHub Action with an SDK-based
+  uploader that does not force the `STANDARD` storage class.
+- Fix the one-line installer on systems without `sudo` by supporting writable
+  `INSTALL_DIR` targets and reporting a clear fallback command when elevation
+  is unavailable.
+
+### Docs
+- Update README and README-zh install examples for `0.6.3`.
+- Add release workflow validation to keep literal README install example
+  versions in sync with the release version.
+
 ## [0.6.2] - 2026-06-12
 
 ### Breaking Changes
