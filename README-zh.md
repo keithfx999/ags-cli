@@ -26,6 +26,12 @@ curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | VERSION=v0.6.2 
 curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | AGR_DOWNLOAD_MIRROR=github sh
 ```
 
+在没有 sudo 的环境中安装到可写目录：
+
+```bash
+curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
+```
+
 ### 手动下载二进制文件
 
 从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载最新版本并手动安装。

@@ -67,6 +67,34 @@ verify_checksum() {
     fi
 }
 
+install_binary() {
+    source_path="$1"
+    target_dir="$2"
+    target_path="${target_dir}/${BINARY}"
+
+    if [ -d "$target_dir" ] && [ -w "$target_dir" ]; then
+        mv "$source_path" "$target_path"
+        return
+    fi
+
+    if [ ! -d "$target_dir" ] && mkdir -p "$target_dir" 2>/dev/null; then
+        mv "$source_path" "$target_path"
+        return
+    fi
+
+    if command -v sudo >/dev/null 2>&1; then
+        echo "Installing to ${target_path} (requires sudo) ..."
+        sudo mkdir -p "$target_dir"
+        sudo mv "$source_path" "$target_path"
+        return
+    fi
+
+    echo "Error: cannot write to ${target_dir}, and sudo is not available." >&2
+    echo "Retry with a writable install directory:" >&2
+    echo "  curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | INSTALL_DIR=\"\$HOME/.local/bin\" sh" >&2
+    exit 1
+}
+
 # Detect platform.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -154,13 +182,7 @@ if [ ! -f "$TMPDIR/$BIN_NAME" ]; then
 fi
 
 chmod +x "$TMPDIR/$BIN_NAME"
-
-if [ -w "$INSTALL_DIR" ]; then
-    mv "$TMPDIR/$BIN_NAME" "${INSTALL_DIR}/${BINARY}"
-else
-    echo "Installing to ${INSTALL_DIR}/${BINARY} (requires sudo) ..."
-    sudo mv "$TMPDIR/$BIN_NAME" "${INSTALL_DIR}/${BINARY}"
-fi
+install_binary "$TMPDIR/$BIN_NAME" "$INSTALL_DIR"
 
 echo ""
 echo "AGR CLI installed successfully!"

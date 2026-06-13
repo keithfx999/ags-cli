@@ -24,6 +24,12 @@ To use GitHub Releases as a fallback source:
 curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | AGR_DOWNLOAD_MIRROR=github sh
 ```
 
+To install without sudo, choose a writable install directory:
+
+```bash
+curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
+```
+
 ### Manual binary download
 
 Download the latest release from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) and install manually.
