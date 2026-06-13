@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2026-06-12
+
+### Breaking Changes
+- This release has no Breaking Changes.
+
+### Features
+- Add ADB tunnel health detection with automatic recovery for mobile
+  instances. Unreachable tunnels now enter a degraded state, `mobile list`
+  reports the real tunnel status, and `mobile list --prune` can clean up
+  unreachable tunnel entries.
+- Add the official AGR CLI download source at `https://dl.tencentags.com/agr-cli`,
+  with the one-line installer using this source by default and GitHub Releases
+  available as a fallback via `AGR_DOWNLOAD_MIRROR=github`.
+- Publish release artifacts to the official download source from the release
+  workflow, including versioned artifacts and the `latest/install.sh` and
+  `latest/VERSION` pointers.
+
+### Bug Fixes
+- Fix ADB tunnel hangs after network disruption, sandbox sleep/wake, or remote
+  adbd restart by closing stale local TCP connections and forcing ADB to
+  reconnect with a fresh protocol handshake.
+- Sync `api/ags/v20250920/api.json` from the upstream tccli API definition.
+
+### Docs
+- Update README and README-zh installation instructions to use the official
+  download source by default.
+
 ## [0.6.1] - 2026-06-05
 
 ### Breaking Changes
