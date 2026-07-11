@@ -45,6 +45,13 @@ func APIDescriptor() apicli.APIDescriptor {
 					{Name: "image-registry-type", Flag: "image-registry-type", Usage: "Image registry type: enterprise or personal (required)", Type: command.FlagString},
 				},
 			},
+			{
+				Name:   "TimeoutMinutes",
+				Parser: "common.default_int",
+				Inputs: []apicli.InputSpec{
+					{Name: "timeout-minutes", Flag: "timeout-minutes", Usage: "预热超时时长", Type: command.FlagInt},
+				},
+			},
 		},
 	}
 }
