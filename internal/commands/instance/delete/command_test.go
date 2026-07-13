@@ -1,12 +1,14 @@
 package delete
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/apicli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/iostreams"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
@@ -36,6 +38,12 @@ func TestModuleKeepsGeneratedAPIDescriptorAndWorkflowFlag(t *testing.T) {
 	}
 	if !hasFlag(module.Descriptor.Spec.Flags, "ignore-not-found") {
 		t.Fatalf("final spec missing --ignore-not-found")
+	}
+	if !hasFlag(module.Descriptor.Spec.Flags, "dry-run") {
+		t.Fatalf("final spec missing --dry-run")
+	}
+	if !hasFlag(module.Descriptor.Spec.Flags, "yes") {
+		t.Fatalf("final spec missing --yes")
 	}
 }
 
@@ -119,19 +127,98 @@ func TestModulePartialFailure(t *testing.T) {
 	}
 }
 
+func TestModuleDryRunDoesNotDeleteInstances(t *testing.T) {
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	result, err := runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"ins-a", "ins-b"},
+		ArgValues: map[string]string{"instance-id": "ins-a"},
+		Flags: map[string]command.FlagValue{
+			"dry-run": {Name: "dry-run", Type: command.FlagBool, Changed: true, Bool: true},
+			"request": {Name: "request", Type: command.FlagString},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(cp.deleted) != 0 {
+		t.Fatalf("dry-run deleted instances: %#v", cp.deleted)
+	}
+	summary := result.Data.(map[string]any)
+	wouldDelete := summary["WouldDeleteIds"].([]string)
+	if summary["DryRun"] != true || summary["Deleted"] != 0 || len(wouldDelete) != 2 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+func TestModulePromptCancellationDoesNotDeleteInstances(t *testing.T) {
+	ios, stdin, _, _ := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stdin.WriteString("n\n")
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp, IO: ios})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	result, err := runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"ins-a"},
+		ArgValues: map[string]string{"instance-id": "ins-a"},
+		Flags:     map[string]command.FlagValue{},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(cp.deleted) != 0 {
+		t.Fatalf("cancelled prompt deleted instances: %#v", cp.deleted)
+	}
+	summary := result.Data.(map[string]any)
+	if summary["Cancelled"] != true || summary["Deleted"] != 0 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+func TestModuleYesSkipsInteractiveConfirmation(t *testing.T) {
+	ios := &iostreams.IOStreams{In: &bytes.Buffer{}, Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}}
+	ios.SetStdinTTY(true)
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp, IO: ios})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"ins-a"},
+		ArgValues: map[string]string{"instance-id": "ins-a"},
+		Flags: map[string]command.FlagValue{
+			"yes": {Name: "yes", Type: command.FlagBool, Changed: true, Bool: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(cp.deleted) != 1 || cp.deleted[0] != "ins-a" {
+		t.Fatalf("deleted = %#v", cp.deleted)
+	}
+}
+
 func TestSummaryDataReturnsCopies(t *testing.T) {
 	summary := Summary{
-		Deleted:       1,
-		Failed:        1,
-		FailedIDs:     []string{"ins-failed"},
-		AlreadyAbsent: []string{"ins-missing"},
+		Deleted:        1,
+		Failed:         1,
+		WouldDeleteIDs: []string{"ins-would-delete"},
+		FailedIDs:      []string{"ins-failed"},
+		AlreadyAbsent:  []string{"ins-missing"},
 	}
 	data := summary.Data()
+	wouldDelete := data["WouldDeleteIds"].([]string)
 	failed := data["FailedIds"].([]string)
 	absent := data["AlreadyAbsent"].([]string)
+	wouldDelete[0] = "mutated"
 	failed[0] = "mutated"
 	absent[0] = "mutated"
-	if summary.FailedIDs[0] != "ins-failed" || summary.AlreadyAbsent[0] != "ins-missing" {
+	if summary.WouldDeleteIDs[0] != "ins-would-delete" || summary.FailedIDs[0] != "ins-failed" || summary.AlreadyAbsent[0] != "ins-missing" {
 		t.Fatalf("Data leaked backing slices: %#v", summary)
 	}
 }

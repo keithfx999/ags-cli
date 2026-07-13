@@ -60,6 +60,8 @@ func TestCharacterization_PublicCommandSurface(t *testing.T) {
 		}},
 		{command: "instance.delete", aliases: []string{"rm", "del"}, use: "delete <instance-id> [instance-id...]", flags: map[string]flagExpectation{
 			"ignore-not-found": {typ: "bool", def: "false"},
+			"dry-run":          {typ: "bool", def: "false"},
+			"yes":              {typ: "bool", def: "false"},
 			"request":          {typ: "string"},
 		}},
 		{command: "instance.code.run", use: "run [instance-id]", flags: map[string]flagExpectation{
@@ -105,6 +107,8 @@ func TestCharacterization_PublicCommandSurface(t *testing.T) {
 			"request":               {typ: "string"},
 		}},
 		{command: "tool.delete", aliases: []string{"rm", "del"}, use: "delete <tool-id> [tool-id...]", flags: map[string]flagExpectation{
+			"dry-run": {typ: "bool", def: "false"},
+			"yes":     {typ: "bool", def: "false"},
 			"request": {typ: "string"},
 		}},
 		{command: "apikey", aliases: []string{"ak", "key"}, use: "apikey"},

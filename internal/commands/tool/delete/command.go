@@ -8,6 +8,7 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/apicli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/internal/deleteguard"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
@@ -19,15 +20,24 @@ type ControlPlane interface {
 
 // Summary aggregates per-tool delete outcomes for text and JSON rendering.
 type Summary struct {
-	Deleted    int
-	Failed     int
-	DeletedIDs []string
-	FailedIDs  []string
+	Deleted        int
+	Failed         int
+	DryRun         bool
+	Cancelled      bool
+	DeletedIDs     []string
+	WouldDeleteIDs []string
+	FailedIDs      []string
 }
 
 // Data converts the summary into the command's canonical JSON shape.
 func (s Summary) Data() map[string]any {
-	data := map[string]any{"Deleted": s.Deleted, "Failed": s.Failed}
+	data := map[string]any{
+		"Deleted":        s.Deleted,
+		"Failed":         s.Failed,
+		"DryRun":         s.DryRun,
+		"Cancelled":      s.Cancelled,
+		"WouldDeleteIds": append([]string(nil), s.WouldDeleteIDs...),
+	}
 	if len(s.FailedIDs) > 0 {
 		data["FailedIds"] = append([]string(nil), s.FailedIDs...)
 	}
@@ -40,9 +50,11 @@ func Module() command.Module {
 	generatedSpec := api.CommandSpec()
 	spec := generatedSpec
 	spec.Use = "delete <tool-id> [tool-id...]"
+	spec.Long = "Delete one or more sandbox tools. Use --dry-run to preview the target IDs, or --yes to skip the interactive confirmation prompt."
 	spec.Args = []command.ArgSpec{
 		{Name: "tool-id", Required: true, Repeatable: true, Description: "Sandbox tool ID."},
 	}
+	spec.Flags = append(spec.Flags, deleteguard.Flags()...)
 	spec.Output = command.OutputSpec{
 		DataType:    "DeleteData",
 		Description: "Delete result with multi-tool handling.",
@@ -82,12 +94,32 @@ func Module() command.Module {
 						if strings.TrimSpace(toolID) == "" {
 							return nil, output.NewUsageError("MISSING_REQUIRED_ARG", "missing tool id", "Provide <tool-id>.")
 						}
+						if deleteguard.DryRun(req) {
+							return resultFromSummary(Summary{DryRun: true, WouldDeleteIDs: []string{toolID}}, nil, deps.IO.ErrOut), nil
+						}
+						proceed, err := deleteguard.Confirm(deps.IO, "tool", []string{toolID}, req)
+						if err != nil {
+							return nil, err
+						}
+						if !proceed {
+							return resultFromSummary(Summary{Cancelled: true, WouldDeleteIDs: []string{toolID}}, nil, deps.IO.ErrOut), nil
+						}
 						if err := cp.DeleteTool(ctx, toolID); err != nil {
 							return nil, err
 						}
 						return resultFromSummary(Summary{Deleted: 1, DeletedIDs: []string{toolID}}, nil, deps.IO.ErrOut), nil
 					}
 
+					if deleteguard.DryRun(req) {
+						return resultFromSummary(Summary{DryRun: true, WouldDeleteIDs: append([]string(nil), req.Args...)}, nil, deps.IO.ErrOut), nil
+					}
+					proceed, err := deleteguard.Confirm(deps.IO, "tool", req.Args, req)
+					if err != nil {
+						return nil, err
+					}
+					if !proceed {
+						return resultFromSummary(Summary{Cancelled: true, WouldDeleteIDs: append([]string(nil), req.Args...)}, nil, deps.IO.ErrOut), nil
+					}
 					summary := Summary{}
 					var warnings []string
 					for _, toolID := range req.Args {
@@ -112,6 +144,14 @@ func resultFromSummary(summary Summary, warnings []string, errOut io.Writer) *co
 		Data:     summary.Data(),
 		Warnings: warnings,
 		Text: func(w io.Writer) {
+			for _, toolID := range summary.WouldDeleteIDs {
+				if summary.DryRun {
+					fmt.Fprintf(w, "Would delete tool: %s\n", toolID)
+				}
+			}
+			if summary.Cancelled {
+				fmt.Fprintln(errOut, "Tool deletion cancelled.")
+			}
 			for _, toolID := range summary.DeletedIDs {
 				fmt.Fprintf(w, "Tool deleted: %s\n", toolID)
 			}

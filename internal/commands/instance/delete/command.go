@@ -8,6 +8,7 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/apicli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/internal/deleteguard"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
@@ -25,20 +26,26 @@ type NotFoundClassifier interface {
 
 // Summary aggregates per-instance delete outcomes for text and JSON rendering.
 type Summary struct {
-	Deleted       int
-	Failed        int
-	DeletedIDs    []string
-	FailedIDs     []string
-	AlreadyAbsent []string
+	Deleted        int
+	Failed         int
+	DryRun         bool
+	Cancelled      bool
+	DeletedIDs     []string
+	WouldDeleteIDs []string
+	FailedIDs      []string
+	AlreadyAbsent  []string
 }
 
 // Data converts the summary into the command's canonical JSON shape.
 func (s Summary) Data() map[string]any {
 	return map[string]any{
-		"Deleted":       s.Deleted,
-		"Failed":        s.Failed,
-		"FailedIds":     append([]string(nil), s.FailedIDs...),
-		"AlreadyAbsent": append([]string(nil), s.AlreadyAbsent...),
+		"Deleted":        s.Deleted,
+		"Failed":         s.Failed,
+		"DryRun":         s.DryRun,
+		"Cancelled":      s.Cancelled,
+		"WouldDeleteIds": append([]string(nil), s.WouldDeleteIDs...),
+		"FailedIds":      append([]string(nil), s.FailedIDs...),
+		"AlreadyAbsent":  append([]string(nil), s.AlreadyAbsent...),
 	}
 }
 
@@ -49,7 +56,7 @@ func Module() command.Module {
 	spec := generatedSpec
 	spec.Use = "delete <instance-id> [instance-id...]"
 	spec.Short = "Delete instances"
-	spec.Long = "Delete one or more sandbox instances. This operation executes immediately and does not prompt for confirmation."
+	spec.Long = "Delete one or more sandbox instances. Use --dry-run to preview the target IDs, or --yes to skip the interactive confirmation prompt."
 	spec.Aliases = []string{"rm", "del"}
 	spec.Args = []command.ArgSpec{
 		{Name: "instance-id", Required: true, Repeatable: true, Description: "Sandbox instance ID."},
@@ -60,6 +67,7 @@ func Module() command.Module {
 		Type:     command.FlagBool,
 		Workflow: true,
 	})
+	spec.Flags = append(spec.Flags, deleteguard.Flags()...)
 	spec.Output = command.OutputSpec{
 		DataType:    "DeleteData",
 		Description: "Delete result with workflow-level handling.",
@@ -99,6 +107,16 @@ func Module() command.Module {
 						if strings.TrimSpace(instanceID) == "" {
 							return nil, output.NewUsageError("MISSING_REQUIRED_ARG", "missing instance id", "Provide <instance-id>.")
 						}
+						if deleteguard.DryRun(req) {
+							return resultFromSummary(Summary{DryRun: true, WouldDeleteIDs: []string{instanceID}}, nil, deps.IO.ErrOut), nil
+						}
+						proceed, err := deleteguard.Confirm(deps.IO, "instance", []string{instanceID}, req)
+						if err != nil {
+							return nil, err
+						}
+						if !proceed {
+							return resultFromSummary(Summary{Cancelled: true, WouldDeleteIDs: []string{instanceID}}, nil, deps.IO.ErrOut), nil
+						}
 						summary, warnings, err := deleteOne(ctx, cp, deps.ControlPlane, instanceID, ignoreNotFound(req))
 						if err != nil {
 							return nil, err
@@ -106,6 +124,16 @@ func Module() command.Module {
 						return resultFromSummary(summary, warnings, deps.IO.ErrOut), nil
 					}
 
+					if deleteguard.DryRun(req) {
+						return resultFromSummary(Summary{DryRun: true, WouldDeleteIDs: append([]string(nil), req.Args...)}, nil, deps.IO.ErrOut), nil
+					}
+					proceed, err := deleteguard.Confirm(deps.IO, "instance", req.Args, req)
+					if err != nil {
+						return nil, err
+					}
+					if !proceed {
+						return resultFromSummary(Summary{Cancelled: true, WouldDeleteIDs: append([]string(nil), req.Args...)}, nil, deps.IO.ErrOut), nil
+					}
 					summary := Summary{}
 					var warnings []string
 					for _, instanceID := range req.Args {
@@ -143,6 +171,14 @@ func resultFromSummary(summary Summary, warnings []string, errOut io.Writer) *co
 		Data:     summary.Data(),
 		Warnings: warnings,
 		Text: func(w io.Writer) {
+			for _, id := range summary.WouldDeleteIDs {
+				if summary.DryRun {
+					fmt.Fprintf(w, "Would delete instance: %s\n", id)
+				}
+			}
+			if summary.Cancelled {
+				fmt.Fprintln(errOut, "Instance deletion cancelled.")
+			}
 			for _, id := range summary.DeletedIDs {
 				fmt.Fprintf(w, "Instance deleted: %s\n", id)
 			}

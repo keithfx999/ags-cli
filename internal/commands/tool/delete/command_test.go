@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/iostreams"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
@@ -76,6 +77,81 @@ func TestModuleReturnsPartialSummary(t *testing.T) {
 	}
 }
 
+func TestModuleDryRunDoesNotDeleteTools(t *testing.T) {
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	result, err := runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"sdt-a", "sdt-b"},
+		ArgValues: map[string]string{"tool-id": "sdt-a"},
+		Flags: map[string]command.FlagValue{
+			"dry-run": {Name: "dry-run", Type: command.FlagBool, Changed: true, Bool: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(cp.deleted) != 0 {
+		t.Fatalf("dry-run deleted tools: %#v", cp.deleted)
+	}
+	summary := result.Data.(map[string]any)
+	wouldDelete := summary["WouldDeleteIds"].([]string)
+	if summary["DryRun"] != true || summary["Deleted"] != 0 || len(wouldDelete) != 2 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+func TestModulePromptCancellationDoesNotDeleteTools(t *testing.T) {
+	ios, stdin, _, _ := iostreams.Test()
+	ios.SetStdinTTY(true)
+	stdin.WriteString("n\n")
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp, IO: ios})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	result, err := runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"sdt-a"},
+		ArgValues: map[string]string{"tool-id": "sdt-a"},
+		Flags:     map[string]command.FlagValue{},
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(cp.deleted) != 0 {
+		t.Fatalf("cancelled prompt deleted tools: %#v", cp.deleted)
+	}
+	summary := result.Data.(map[string]any)
+	if summary["Cancelled"] != true || summary["Deleted"] != 0 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+func TestModuleYesSkipsInteractiveConfirmation(t *testing.T) {
+	ios := &iostreams.IOStreams{In: &bytes.Buffer{}, Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}}
+	ios.SetStdinTTY(true)
+	cp := &fakeControlPlane{}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp, IO: ios})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{
+		Args:      []string{"sdt-a"},
+		ArgValues: map[string]string{"tool-id": "sdt-a"},
+		Flags: map[string]command.FlagValue{
+			"yes": {Name: "yes", Type: command.FlagBool, Changed: true, Bool: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(cp.deleted) != 1 || cp.deleted[0] != "sdt-a" {
+		t.Fatalf("deleted = %#v", cp.deleted)
+	}
+}
+
 func TestModuleRequestDeletesSingleTool(t *testing.T) {
 	cp := &fakeControlPlane{}
 	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
@@ -106,10 +182,16 @@ func TestSummaryDataIncludesFailedIdsOnlyWhenPresent(t *testing.T) {
 	if _, ok := data["FailedIds"]; ok {
 		t.Fatalf("unexpected FailedIds in %#v", data)
 	}
-	data = Summary{Deleted: 1, Failed: 1, FailedIDs: []string{"sdt-b"}}.Data()
+	summary := Summary{Deleted: 1, Failed: 1, WouldDeleteIDs: []string{"sdt-a"}, FailedIDs: []string{"sdt-b"}}
+	data = summary.Data()
 	failed, ok := data["FailedIds"].([]string)
 	if !ok || len(failed) != 1 || failed[0] != "sdt-b" {
 		t.Fatalf("FailedIds = %#v", data["FailedIds"])
+	}
+	wouldDelete := data["WouldDeleteIds"].([]string)
+	wouldDelete[0] = "mutated"
+	if summary.WouldDeleteIDs[0] != "sdt-a" {
+		t.Fatalf("WouldDeleteIds leaked backing slice: %#v", summary.WouldDeleteIDs)
 	}
 }
 
