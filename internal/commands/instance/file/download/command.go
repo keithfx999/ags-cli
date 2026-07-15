@@ -10,6 +10,7 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/cli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/file/internal/fileerr"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
@@ -94,18 +95,18 @@ func runDownload(ctx context.Context, req command.Request, deps command.Deps) (*
 	if testDP := cli.TestDataPlane(); testDP != nil {
 		reader, size, err := testDP.Download(ctx, instanceID, remotePath)
 		if err != nil {
-			return nil, err
+			return nil, fileerr.TransferFailure("download", "read", instanceID, remotePath, err)
 		}
 		return writeDownloadResult(reader, size, remotePath, localPath, deps.IO.Out)
 	}
 
 	sandbox, err := cli.ConnectSandboxWithCache(ctx, instanceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to instance %s: %w", instanceID, err)
+		return nil, fileerr.TransferFailure("download", "connect", instanceID, remotePath, err)
 	}
 	reader, err := sandbox.Files.Read(ctx, remotePath, &filesystem.ReadConfig{User: cli.ResolveUser(stringFlag(req, "user"))})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read remote file: %w", err)
+		return nil, fileerr.TransferFailure("download", "read", instanceID, remotePath, err)
 	}
 	return writeDownloadResult(reader, -1, remotePath, localPath, deps.IO.Out)
 }

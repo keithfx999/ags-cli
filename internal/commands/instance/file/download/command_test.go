@@ -3,6 +3,7 @@ package download
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/iostreams"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
 func TestModuleDownloadsWithTestDataPlane(t *testing.T) {
@@ -89,10 +91,38 @@ func TestWriteDownloadResultRejectsBadLocalPath(t *testing.T) {
 	}
 }
 
+func TestModuleClassifiesBackendDownloadFailure(t *testing.T) {
+	setupConfig(t)
+	dp := &fakeFileDataPlane{downloadErr: errors.New("permission denied")}
+	defer cli.SetTestDataPlaneForTest(dp)()
+
+	runtime, err := Module().Build(command.Deps{IO: testIO()})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{
+		Args: []string{"ins-1", "/root/secret.txt", filepath.Join(t.TempDir(), "secret.txt")},
+	})
+	cliErr := output.ClassifyError(err)
+	if cliErr.Failure.Code != "FILE_DOWNLOAD_FAILED" {
+		t.Fatalf("code=%s, want FILE_DOWNLOAD_FAILED", cliErr.Failure.Code)
+	}
+	if cliErr.Failure.Kind != output.KindAuthOrPermission || cliErr.Failure.Retryable {
+		t.Fatalf("failure=%#v, want non-retryable auth failure", cliErr.Failure)
+	}
+	if !strings.Contains(cliErr.Failure.Hint, "--user") {
+		t.Fatalf("hint=%q, want user/permission guidance", cliErr.Failure.Hint)
+	}
+	if cliErr.Failure.Details["Operation"] != "download" || cliErr.Failure.Details["Path"] != "/root/secret.txt" {
+		t.Fatalf("details=%#v", cliErr.Failure.Details)
+	}
+}
+
 type fakeFileDataPlane struct {
 	downloadInstanceID string
 	downloadPath       string
 	downloadBody       string
+	downloadErr        error
 }
 
 func (f *fakeFileDataPlane) RunCode(context.Context, string, string, string) (string, string, any, any, int, error) {
@@ -110,6 +140,9 @@ func (f *fakeFileDataPlane) Upload(context.Context, string, string, string, io.R
 func (f *fakeFileDataPlane) Download(_ context.Context, instanceID, remotePath string) (io.Reader, int64, error) {
 	f.downloadInstanceID = instanceID
 	f.downloadPath = remotePath
+	if f.downloadErr != nil {
+		return nil, 0, f.downloadErr
+	}
 	return bytes.NewBufferString(f.downloadBody), int64(len(f.downloadBody)), nil
 }
 

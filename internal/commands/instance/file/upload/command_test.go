@@ -3,6 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/iostreams"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
 
 func TestModuleUploadsWithTestDataPlane(t *testing.T) {
@@ -94,9 +96,41 @@ func TestModuleRejectsMissingLocalFile(t *testing.T) {
 	}
 }
 
+func TestModuleClassifiesBackendUploadFailure(t *testing.T) {
+	setupConfig(t)
+	dp := &fakeFileDataPlane{uploadErr: errors.New("envd filesystem returned 500")}
+	defer cli.SetTestDataPlaneForTest(dp)()
+
+	localPath := filepath.Join(t.TempDir(), "data.txt")
+	if err := os.WriteFile(localPath, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+	runtime, err := Module().Build(command.Deps{IO: testIO()})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{
+		Args: []string{"ins-broken", localPath, "/tmp/data.txt"},
+	})
+	cliErr := output.ClassifyError(err)
+	if cliErr.Failure.Code != "FILE_UPLOAD_FAILED" {
+		t.Fatalf("code=%s, want FILE_UPLOAD_FAILED", cliErr.Failure.Code)
+	}
+	if cliErr.Failure.Kind != output.KindNetwork || !cliErr.Failure.Retryable {
+		t.Fatalf("failure=%#v, want retryable network failure", cliErr.Failure)
+	}
+	if !strings.Contains(cliErr.Failure.Message, "ins-broken") || !strings.Contains(cliErr.Failure.Hint, "file service") {
+		t.Fatalf("failure=%#v, want actionable instance/file-service message", cliErr.Failure)
+	}
+	if cliErr.Failure.Details["Cause"] != "envd filesystem returned 500" || cliErr.Failure.Details["Path"] != "/tmp/data.txt" {
+		t.Fatalf("details=%#v", cliErr.Failure.Details)
+	}
+}
+
 type fakeFileDataPlane struct {
 	uploadInstanceID string
 	uploadBody       string
+	uploadErr        error
 }
 
 func (f *fakeFileDataPlane) RunCode(context.Context, string, string, string) (string, string, any, any, int, error) {
@@ -109,6 +143,9 @@ func (f *fakeFileDataPlane) Exec(context.Context, string, []string) (string, str
 
 func (f *fakeFileDataPlane) Upload(_ context.Context, instanceID, _ string, remotePath string, r io.Reader) (string, int64, error) {
 	f.uploadInstanceID = instanceID
+	if f.uploadErr != nil {
+		return "", 0, f.uploadErr
+	}
 	body, err := io.ReadAll(r)
 	if err != nil {
 		return "", 0, err

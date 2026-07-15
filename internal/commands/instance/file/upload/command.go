@@ -10,6 +10,7 @@ import (
 
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/cli"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/command"
+	"github.com/TencentCloudAgentRuntime/ags-cli/internal/commands/instance/file/internal/fileerr"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/config"
 	"github.com/TencentCloudAgentRuntime/ags-cli/internal/output"
 )
@@ -99,7 +100,7 @@ func runUpload(ctx context.Context, req command.Request, deps command.Deps) (*co
 	if testDP := cli.TestDataPlane(); testDP != nil {
 		path, size, err := testDP.Upload(ctx, instanceID, localPath, remotePath, reader)
 		if err != nil {
-			return nil, err
+			return nil, fileerr.TransferFailure("upload", "write", instanceID, remotePath, err)
 		}
 		data := map[string]any{"Operation": "upload", "Path": path, "LocalPath": localPath, "Size": size}
 		return &command.Result{Data: data, Text: func(w io.Writer) { fmt.Fprintf(w, "Uploaded %s -> %s\n", localPath, path) }}, nil
@@ -107,11 +108,11 @@ func runUpload(ctx context.Context, req command.Request, deps command.Deps) (*co
 
 	sandbox, err := cli.ConnectSandboxWithCache(ctx, instanceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to instance %s: %w", instanceID, err)
+		return nil, fileerr.TransferFailure("upload", "connect", instanceID, remotePath, err)
 	}
 	info, err := sandbox.Files.Write(ctx, remotePath, reader, &filesystem.WriteConfig{User: cli.ResolveUser(stringFlag(req, "user"))})
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload file: %w", err)
+		return nil, fileerr.TransferFailure("upload", "write", instanceID, remotePath, err)
 	}
 	data := map[string]any{
 		"Operation": "upload",
