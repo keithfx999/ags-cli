@@ -1,4 +1,4 @@
-.PHONY: build install go-install clean test lint fmt help man install-man e2e
+.PHONY: build install go-install clean test vet lint fmt help man install-man e2e
 
 # Binary name
 BINARY_NAME=agr
@@ -8,7 +8,10 @@ BUILD_DIR=build
 
 # Go parameters
 GOCMD=go
-GOBUILD=$(GOCMD) build
+GO_BUILDVCS_FLAG ?= -buildvcs=false
+GOBUILD=$(GOCMD) build $(GO_BUILDVCS_FLAG)
+GOINSTALL=$(GOCMD) install $(GO_BUILDVCS_FLAG)
+GORUN=$(GOCMD) run $(GO_BUILDVCS_FLAG)
 GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GOVET=$(GOCMD) vet
@@ -16,7 +19,9 @@ GOLANGCI_LINT=golangci-lint
 TMP_BASE ?= $(if $(TMPDIR),$(TMPDIR),/tmp)
 GOCACHE_DIR ?= $(TMP_BASE)/agr-go-cache
 GOTMPDIR_DIR ?= $(TMP_BASE)/agr-go-tmp
+GOLANGCI_LINT_CACHE_DIR ?= $(TMP_BASE)/agr-golangci-lint-cache
 GO_RUN_ENV = GOCACHE=$(GOCACHE_DIR) GOTMPDIR=$(GOTMPDIR_DIR)
+GOLANGCI_LINT_ENV = $(GO_RUN_ENV) GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE_DIR)
 
 # Version info (can be overridden)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -68,7 +73,7 @@ install: build
 go-install:
 	@echo "Installing $(BINARY_NAME) via go install with version info..."
 	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
-	$(GO_RUN_ENV) $(GOCMD) install $(LDFLAGS) ./cmd/agr
+	$(GO_RUN_ENV) $(GOINSTALL) $(LDFLAGS) ./cmd/agr
 	@echo "Done. Binary installed to $$(go env GOPATH)/bin/$(BINARY_NAME)"
 
 ## uninstall: Remove the binary from /usr/local/bin
@@ -89,10 +94,15 @@ test:
 	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
 	$(GO_RUN_ENV) $(GOTEST) -v ./...
 
-## lint: Run go vet
-lint:
+## vet: Run go vet
+vet:
 	mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
-	$(GO_RUN_ENV) $(GOLANGCI_LINT) run
+	$(GO_RUN_ENV) $(GOVET) ./...
+
+## lint: Run golangci-lint
+lint:
+	mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR) $(GOLANGCI_LINT_CACHE_DIR)
+	$(GOLANGCI_LINT_ENV) $(GOLANGCI_LINT) run
 
 ## fmt: Run gofmt
 fmt:
@@ -100,20 +110,24 @@ fmt:
 
 ## e2e: Run lifecycle tests (requires credentials via env or ~/.agr/config.toml)
 e2e:
-	$(GOTEST) -v -timeout 20m ./tests/lifecycle/...
+	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
+	$(GO_RUN_ENV) $(GOTEST) -v -timeout 20m ./tests/lifecycle/...
 
 ## deps: Download dependencies
 deps:
-	$(GOMOD) download
+	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
+	$(GO_RUN_ENV) $(GOMOD) download
 
 ## tidy: Tidy go.mod
 tidy:
-	$(GOMOD) tidy
+	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
+	$(GO_RUN_ENV) $(GOMOD) tidy
 
 ## man: Generate man pages (maintainer-only docgen, NextPlan §9.5)
 man:
 	@echo "Generating man pages..."
-	@go run ./cmd/internal/docgen man --dir man
+	@mkdir -p $(GOCACHE_DIR) $(GOTMPDIR_DIR)
+	$(GO_RUN_ENV) $(GORUN) ./cmd/internal/docgen man --dir man
 	@echo "Done."
 
 ## install-man: Install man pages to system
