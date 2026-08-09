@@ -40,13 +40,6 @@ func APIDescriptor() apicli.APIDescriptor {
 					{Name: "instance-id", Positional: true},
 				},
 			},
-			{
-				Name:   "Memory",
-				Parser: "common.default_bool",
-				Inputs: []apicli.InputSpec{
-					{Name: "memory", Flag: "memory", Usage: "可选。带内存暂停，恢复后保留进程和内存状态。true=带内存；false=仅磁盘；不传=系统默认（当前默认 true，带内存）。", Type: command.FlagBool},
-				},
-			},
 		},
 	}
 }
