@@ -203,7 +203,9 @@ func TestCharacterization_HelpAndSchemaExcerpts(t *testing.T) {
 				"--filters string",
 				"Format:",
 				`[{"Name":"<field>","Values":["<value1>","<value2>"]}]`,
-				"Status: STARTING, RUNNING, STOPPING, STOPPED, STOP_FAILED, FAILED",
+				"Status filters: STARTING, STARTING_FAILED, RUNNING, FAILED, PAUSING, PAUSED, PAUSE_FAILED, RESUME_FAILED, STOPPING, STOPPING_FAILED, STOPPED",
+				"Status UNHEALTHY: filter by UNHEALTHY only; do not combine it with other Status values or filters",
+				"Status output may also include derived UNHEALTHY; legacy STOP_FAILED output maps to STOPPING_FAILED for filtering",
 			},
 		},
 		{
