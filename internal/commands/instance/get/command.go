@@ -27,7 +27,7 @@ func Module() command.Module {
 		Long:         "Get detailed information about a specific instance.",
 		Args:         []command.ArgSpec{{Name: "instance-id", Required: true}},
 		SupportsJSON: true,
-		Output:       command.OutputSpec{DataType: "Instance"},
+		Output:       command.OutputSpec{DataType: "Instance", Effects: []string{"read:instance"}},
 	}
 	return command.Module{
 		Descriptor: command.Descriptor{

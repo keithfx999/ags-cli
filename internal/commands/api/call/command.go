@@ -38,6 +38,7 @@ func Module() command.Module {
 		Output: command.OutputSpec{
 			DataType:    "RawAPIResponse",
 			Description: "Raw control-plane API response.",
+			Effects:     []string{"call:api"},
 		},
 	}
 	return command.Module{

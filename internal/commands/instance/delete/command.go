@@ -63,6 +63,7 @@ func Module() command.Module {
 	spec.Output = command.OutputSpec{
 		DataType:    "DeleteData",
 		Description: "Delete result with workflow-level handling.",
+		Effects:     []string{"delete:instance"},
 	}
 
 	return command.Module{

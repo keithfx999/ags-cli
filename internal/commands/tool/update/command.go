@@ -15,6 +15,7 @@ import (
 func Module() command.Module {
 	api := APIDescriptor()
 	spec := api.CommandSpec()
+	spec.Output.Effects = []string{"update:tool"}
 	return command.Module{
 		Descriptor: command.Descriptor{
 			Spec: spec,

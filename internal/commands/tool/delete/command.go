@@ -46,6 +46,7 @@ func Module() command.Module {
 	spec.Output = command.OutputSpec{
 		DataType:    "DeleteData",
 		Description: "Delete result with multi-tool handling.",
+		Effects:     []string{"delete:tool"},
 	}
 
 	return command.Module{

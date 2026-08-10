@@ -32,6 +32,7 @@ func Module() command.Module {
 		Output: command.OutputSpec{
 			DataType:    "SandboxTool",
 			Description: "Sandbox tool details.",
+			Effects:     []string{"read:tool"},
 		},
 	}
 	groups := []command.GroupSpec{

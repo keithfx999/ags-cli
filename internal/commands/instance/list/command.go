@@ -23,6 +23,7 @@ func Module() command.Module {
 	spec.Output = command.OutputSpec{
 		DataType:    "InstanceListData",
 		Description: "Instance list with normalized items and pagination metadata.",
+		Effects:     []string{"list:instance"},
 	}
 	spec.Long = "List sandbox instances with optional filters.\n\nUse --all to fetch every page in the current configured region instead of a single paginated response."
 	spec.Examples = append(spec.Examples, "agr instance list --all")

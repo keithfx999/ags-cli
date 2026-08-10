@@ -28,6 +28,22 @@ func TestSchemaFromDescriptorInfersEffects(t *testing.T) {
 			requiresAuth: true,
 		},
 		{
+			name:         "update effect",
+			effects:      []string{"update:tool"},
+			mutation:     true,
+			requiresAuth: true,
+		},
+		{
+			name:         "read effect",
+			effects:      []string{"read:instance"},
+			requiresAuth: true,
+		},
+		{
+			name:         "list effect",
+			effects:      []string{"list:apikey"},
+			requiresAuth: true,
+		},
+		{
 			name: "no effect",
 		},
 	}

@@ -22,6 +22,7 @@ func Module() command.Module {
 	spec.Output = command.OutputSpec{
 		DataType:    "ToolListData",
 		Description: "Tool list with normalized items and pagination metadata.",
+		Effects:     []string{"list:tool"},
 	}
 	return command.Module{
 		Descriptor: command.Descriptor{

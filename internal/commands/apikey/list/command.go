@@ -19,6 +19,7 @@ func Module() command.Module {
 	spec.Output = command.OutputSpec{
 		DataType:    "APIKeyListData",
 		Description: "API key list with normalized items.",
+		Effects:     []string{"list:apikey"},
 	}
 	return command.Module{
 		Descriptor: command.Descriptor{

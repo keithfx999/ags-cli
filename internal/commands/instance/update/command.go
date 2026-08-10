@@ -13,6 +13,7 @@ import (
 func Module() command.Module {
 	api := APIDescriptor()
 	spec := api.CommandSpec()
+	spec.Output.Effects = []string{"update:instance"}
 	return command.Module{
 		Descriptor: command.Descriptor{
 			Spec: spec,

@@ -438,7 +438,7 @@ func schemaEffects(effects []string) (mutation, createsResource, requiresAuth bo
 		case "create":
 			mutation = true
 			createsResource = true
-		case "delete":
+		case "delete", "update", "pause", "resume":
 			mutation = true
 		}
 	}

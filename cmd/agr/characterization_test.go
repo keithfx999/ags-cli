@@ -610,6 +610,8 @@ type commandSchemaSnapshot struct {
 	Aliases         []string
 	Subcommands     []string
 	SupportsJSON    bool
+	Mutation        bool
+	CreatesResource bool
 	RequiresAuth    bool
 	SupportsRequest bool
 	Args            []struct {
@@ -685,6 +687,8 @@ func schemaSnapshotForCommand(t *testing.T, command string) commandSchemaSnapsho
 			Aliases         []string `json:"Aliases"`
 			Subcommands     []string `json:"Subcommands"`
 			SupportsJson    bool     `json:"SupportsJson"`
+			Mutation        bool     `json:"Mutation"`
+			CreatesResource bool     `json:"CreatesResource"`
 			RequiresAuth    bool     `json:"RequiresAuth"`
 			SupportsRequest bool     `json:"SupportsRequest"`
 			Args            []struct {
@@ -724,6 +728,8 @@ func schemaSnapshotForCommand(t *testing.T, command string) commandSchemaSnapsho
 		Aliases:         append([]string(nil), env.Data.Aliases...),
 		Subcommands:     append([]string(nil), env.Data.Subcommands...),
 		SupportsJSON:    env.Data.SupportsJson,
+		Mutation:        env.Data.Mutation,
+		CreatesResource: env.Data.CreatesResource,
 		RequiresAuth:    env.Data.RequiresAuth,
 		SupportsRequest: env.Data.SupportsRequest,
 		Args: make([]struct {
@@ -878,6 +884,47 @@ func TestCharacterization_SchemaListIncludesPublicGroupsHelpAndAliases(t *testin
 	}
 	if _, ok := commands["instance.mobile.tunnel"]; ok {
 		t.Fatalf("schema list leaked hidden command instance.mobile.tunnel")
+	}
+}
+
+func TestCharacterization_SchemaCloudCommandEffects(t *testing.T) {
+	cases := []struct {
+		command         string
+		mutation        bool
+		createsResource bool
+	}{
+		{command: "api.call"},
+		{command: "apikey.create", mutation: true, createsResource: true},
+		{command: "apikey.delete", mutation: true},
+		{command: "apikey.list"},
+		{command: "instance.create", mutation: true, createsResource: true},
+		{command: "instance.delete", mutation: true},
+		{command: "instance.get"},
+		{command: "instance.list"},
+		{command: "instance.pause", mutation: true},
+		{command: "instance.resume", mutation: true},
+		{command: "instance.update", mutation: true},
+		{command: "pre-cache-image-task.create", mutation: true, createsResource: true},
+		{command: "pre-cache-image-task.get"},
+		{command: "tool.create", mutation: true, createsResource: true},
+		{command: "tool.delete", mutation: true},
+		{command: "tool.get"},
+		{command: "tool.list"},
+		{command: "tool.update", mutation: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			schema := schemaForCommand(t, tc.command)
+			if !schema.RequiresAuth {
+				t.Fatalf("schema %s RequiresAuth = false, want true", tc.command)
+			}
+			if schema.Mutation != tc.mutation {
+				t.Fatalf("schema %s Mutation = %v, want %v", tc.command, schema.Mutation, tc.mutation)
+			}
+			if schema.CreatesResource != tc.createsResource {
+				t.Fatalf("schema %s CreatesResource = %v, want %v", tc.command, schema.CreatesResource, tc.createsResource)
+			}
+		})
 	}
 }
 
