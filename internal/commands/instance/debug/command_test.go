@@ -18,6 +18,7 @@ type fakeControlPlane struct {
 	sourceTool        *ags.SandboxTool
 	debugTool         *ags.SandboxTool
 	instance          *ags.SandboxInstance
+	instances         []*ags.SandboxInstance
 	getIDs            []string
 	actions           []string
 	requests          []map[string]any
@@ -78,6 +79,13 @@ func (f *fakeControlPlane) GetInstance(_ context.Context, instanceID string) (*a
 	f.getIDs = append(f.getIDs, "instance:"+instanceID)
 	if f.instanceReadyErr != nil {
 		return nil, f.instanceReadyErr
+	}
+	if len(f.instances) > 0 {
+		instance := f.instances[0]
+		if len(f.instances) > 1 {
+			f.instances = f.instances[1:]
+		}
+		return instance, nil
 	}
 	if f.instance != nil {
 		return f.instance, nil
@@ -247,6 +255,76 @@ func TestModuleCleansUpInstanceThenToolOnInstanceFailure(t *testing.T) {
 	}
 	if got, want := strings.Join(cp.deletes, ","), "instance:ins-debug,tool:sdt-debug"; got != want {
 		t.Fatalf("deletes = %q, want %q", got, want)
+	}
+}
+
+func TestModuleCleansUpInstanceThenToolOnTerminalInstanceFailure(t *testing.T) {
+	failed := "STARTING_FAILED"
+	cp := &fakeControlPlane{
+		sourceTool: sourceTool(),
+		instance:   &ags.SandboxInstance{InstanceId: strPtr("ins-debug"), Status: &failed},
+	}
+	runtime, err := Module().Build(command.Deps{ControlPlane: cp})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	_, err = runtime.Handler.Run(context.Background(), command.Request{Flags: map[string]command.FlagValue{"tool-id": {Name: "tool-id", Type: command.FlagString, String: "sdt-source", Changed: true}}})
+	cliErr, ok := err.(*output.CLIError)
+	if !ok || cliErr.Failure.Code != "DEBUG_INSTANCE_NOT_READY" || !strings.Contains(cliErr.Error(), "STARTING_FAILED") {
+		t.Fatalf("error = %#v, want structured terminal instance failure", err)
+	}
+	if got, want := strings.Join(cp.deletes, ","), "instance:ins-debug,tool:sdt-debug"; got != want {
+		t.Fatalf("deletes = %q, want %q", got, want)
+	}
+}
+
+func TestWaitForInstanceRunningPollsTransitionalStates(t *testing.T) {
+	starting := "STARTING"
+	running := "RUNNING"
+	cp := &fakeControlPlane{instances: []*ags.SandboxInstance{
+		{InstanceId: strPtr("ins-debug"), Status: &starting},
+		{InstanceId: strPtr("ins-debug"), Status: &running},
+	}}
+
+	instance, err := waitForInstanceReady(context.Background(), cp, "ins-debug", time.Second, time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForInstanceReady returned error: %v", err)
+	}
+	if got := derefString(instance.Status); got != "RUNNING" {
+		t.Fatalf("status = %q, want RUNNING", got)
+	}
+	if got, want := strings.Join(cp.getIDs, ","), "instance:ins-debug,instance:ins-debug"; got != want {
+		t.Fatalf("lookups = %q, want %q", got, want)
+	}
+}
+
+func TestWaitForInstanceRunningStopsOnTerminalStates(t *testing.T) {
+	for _, status := range []string{"FAILED", "STARTING_FAILED", "STOP_FAILED", "STOPPED", "PREEMPTED"} {
+		t.Run(status, func(t *testing.T) {
+			cp := &fakeControlPlane{instance: &ags.SandboxInstance{InstanceId: strPtr("ins-debug"), Status: strPtr(status)}}
+
+			_, err := waitForInstanceReady(context.Background(), cp, "ins-debug", time.Second, time.Millisecond)
+			cliErr, ok := err.(*output.CLIError)
+			if !ok || cliErr.Failure.Code != "DEBUG_INSTANCE_NOT_READY" || !strings.Contains(cliErr.Error(), status) {
+				t.Fatalf("error = %#v, want structured terminal status failure", err)
+			}
+			if got, want := strings.Join(cp.getIDs, ","), "instance:ins-debug"; got != want {
+				t.Fatalf("lookups = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestWaitForInstanceRunningTimesOutOnTransitionalState(t *testing.T) {
+	starting := "STARTING"
+	cp := &fakeControlPlane{instance: &ags.SandboxInstance{InstanceId: strPtr("ins-debug"), Status: &starting}}
+
+	_, err := waitForInstanceReady(context.Background(), cp, "ins-debug", 5*time.Millisecond, time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for debug instance ins-debug") || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want wrapped deadline timeout", err)
+	}
+	if len(cp.getIDs) < 2 {
+		t.Fatalf("lookups = %v, want repeated polling", cp.getIDs)
 	}
 }
 

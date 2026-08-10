@@ -34,6 +34,14 @@ const (
 	debugCleanupWait  = 30 * time.Second
 )
 
+type instanceWaitState int
+
+const (
+	instanceWaitPolling instanceWaitState = iota
+	instanceWaitReady
+	instanceWaitTerminal
+)
+
 // ControlPlane supplies the resource operations used by the debug workflow.
 type ControlPlane interface {
 	GetTool(ctx context.Context, toolID string) (*ags.SandboxTool, error)
@@ -294,14 +302,18 @@ func waitForToolReady(ctx context.Context, cp ControlPlane, toolID string) (*ags
 		case "FAILED":
 			return nil, fmt.Errorf("debug tool %s failed to become ready (status: %s)", toolID, status)
 		}
-		if err := waitBeforeRetry(waitCtx); err != nil {
+		if err := waitBeforeRetry(waitCtx, debugPollInterval); err != nil {
 			return nil, fmt.Errorf("timed out waiting for debug tool %s to become ready: %w", toolID, err)
 		}
 	}
 }
 
 func waitForInstanceRunning(ctx context.Context, cp ControlPlane, instanceID string) (*ags.SandboxInstance, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, debugReadyTimeout)
+	return waitForInstanceReady(ctx, cp, instanceID, debugReadyTimeout, debugPollInterval)
+}
+
+func waitForInstanceReady(ctx context.Context, cp ControlPlane, instanceID string, timeout, pollInterval time.Duration) (*ags.SandboxInstance, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
 		instance, err := cp.GetInstance(waitCtx, instanceID)
@@ -309,20 +321,36 @@ func waitForInstanceRunning(ctx context.Context, cp ControlPlane, instanceID str
 			return nil, err
 		}
 		status := strings.ToUpper(derefString(instance.Status))
-		switch status {
-		case "RUNNING":
+		switch classifyDebugInstanceWaitStatus(status) {
+		case instanceWaitReady:
 			return instance, nil
-		case "FAILED", "STOPPED", "STOP_FAILED":
-			return nil, fmt.Errorf("debug instance %s failed to become ready (status: %s)", instanceID, status)
+		case instanceWaitTerminal:
+			return nil, output.NewCLIError(&output.Failure{
+				Code:    "DEBUG_INSTANCE_NOT_READY",
+				Kind:    output.KindGenericError,
+				Message: fmt.Sprintf("debug instance %s failed to become ready (status: %s)", instanceID, status),
+				Hint:    "Create the debug instance again after fixing the source tool or image configuration.",
+			})
 		}
-		if err := waitBeforeRetry(waitCtx); err != nil {
+		if err := waitBeforeRetry(waitCtx, pollInterval); err != nil {
 			return nil, fmt.Errorf("timed out waiting for debug instance %s to become ready: %w", instanceID, err)
 		}
 	}
 }
 
-func waitBeforeRetry(ctx context.Context) error {
-	timer := time.NewTimer(debugPollInterval)
+func classifyDebugInstanceWaitStatus(status string) instanceWaitState {
+	switch status {
+	case "RUNNING":
+		return instanceWaitReady
+	case "FAILED", "STARTING_FAILED", "STOP_FAILED", "STOPPED", "PREEMPTED":
+		return instanceWaitTerminal
+	default:
+		return instanceWaitPolling
+	}
+}
+
+func waitBeforeRetry(ctx context.Context, pollInterval time.Duration) error {
+	timer := time.NewTimer(pollInterval)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
