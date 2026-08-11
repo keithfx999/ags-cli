@@ -40,6 +40,13 @@ func APIDescriptor() apicli.APIDescriptor {
 					{Name: "instance-id", Positional: true},
 				},
 			},
+			{
+				Name:   "Timeout",
+				Parser: "common.default_string",
+				Inputs: []apicli.InputSpec{
+					{Name: "timeout", Flag: "timeout", Usage: "超时时间，超过这个时间就自动回收实例。支持格式：5m、300s、1h 等，默认 5m。最小 30s，最大 24h", Type: command.FlagString},
+				},
+			},
 		},
 	}
 }
